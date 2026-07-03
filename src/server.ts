@@ -4,7 +4,7 @@ import express from 'express';
 import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import { handleMessage } from './ws-router';
-import { getExportPath } from './logger';
+import { getExportPath, getAllExportCsv } from './logger';
 import type { InboundMessage, WsClient } from './types';
 import type { Session } from './session';
 
@@ -32,6 +32,15 @@ app.get('/export/:sessionId', (req, res) => {
   const filePath = getExportPath(req.params.sessionId);
   if (!filePath) return void res.status(404).json({ error: 'Session log not found.' });
   res.download(filePath);
+});
+
+// Download all sessions as a single combined CSV
+app.get('/export-all', (_req, res) => {
+  const csv = getAllExportCsv();
+  if (!csv) return void res.status(404).json({ error: 'No session logs found.' });
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="all-sessions.csv"');
+  res.send(csv);
 });
 
 const httpServer = createServer(app);
@@ -104,4 +113,5 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] Listening on port ${PORT} (all interfaces)`);
   console.log(`[Server] Health: http://localhost:${PORT}/health`);
   console.log(`[Server] Export: http://localhost:${PORT}/export/<sessionId>`);
+  console.log(`[Server] Export all: http://localhost:${PORT}/export-all`);
 });

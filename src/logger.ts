@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, WriteStream } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, WriteStream } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import type { ActiveRules } from './types';
@@ -89,4 +89,26 @@ export function closeSession(sessionId: string): void {
 export function getExportPath(sessionId: string): string | null {
   const filePath = join(LOGS_DIR, `${sessionId}.csv`);
   return existsSync(filePath) ? filePath : null;
+}
+
+export function getAllExportCsv(): string | null {
+  const files = readdirSync(LOGS_DIR).filter((f) => f.endsWith('.csv')).sort();
+  if (files.length === 0) return null;
+
+  let combined = '';
+  let headerWritten = false;
+
+  for (const file of files) {
+    const content = readFileSync(join(LOGS_DIR, file), 'utf-8');
+    const lines = content.split('\n').filter((l) => l.trim() !== '');
+    if (lines.length === 0) continue;
+
+    if (!headerWritten) {
+      combined += lines[0] + '\n';
+      headerWritten = true;
+    }
+    combined += lines.slice(1).join('\n') + '\n';
+  }
+
+  return combined || null;
 }

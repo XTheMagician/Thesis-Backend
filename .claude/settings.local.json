@@ -8,7 +8,13 @@
       "Bash(pnpm approve-builds:*)",
       "Bash(timeout 5 pnpm start:*)",
       "Bash(pnpm typecheck:*)",
-      "Bash(timeout 4 pnpm start:*)"
+      "Bash(timeout 4 pnpm start:*)",
+      "Bash(pnpm exec:*)",
+      "Bash(pnpm dlx:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(timeout 8 pnpm dev:*)",
+      "Bash(timeout 6 pnpm dev:*)"
     ]
   }
 }
