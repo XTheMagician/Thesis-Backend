@@ -21,6 +21,7 @@ export interface SessionConstructorParams {
   participantId: string;
   condition: Condition;
   ticketIntervalMs: number;
+  ticketJitter?: number;
   sessionTimerMs?: number;
 }
 
@@ -29,6 +30,7 @@ export class Session {
   readonly participantId: string;
   readonly condition: Condition;
   readonly ticketIntervalMs: number;
+  readonly ticketJitter: number;
   readonly sessionTimerMs: number | null;
 
   status: 'running' | 'paused' | 'ended';
@@ -46,7 +48,7 @@ export class Session {
   stats: SessionStats = { total: 0, correct: 0, wrong: 0 };
 
   // Timer handles for cleanup — managed externally by the router
-  _dispatchTimer: ReturnType<typeof setInterval> | null = null;
+  _dispatchTimer: ReturnType<typeof setTimeout> | null = null;
   _ruleTimers: ReturnType<typeof setTimeout>[] = [];
   _sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -62,16 +64,24 @@ export class Session {
   // Rule schedule (so unfired rules can be rescheduled after pause)
   _ruleSchedule: import('./types').RuleScheduleEntry[] = [];
 
-  constructor({ participantId, condition, ticketIntervalMs, sessionTimerMs }: SessionConstructorParams) {
+  constructor({ participantId, condition, ticketIntervalMs, ticketJitter, sessionTimerMs }: SessionConstructorParams) {
     this.id = `${participantId}-${condition}-${Date.now()}`;
     this.participantId = participantId;
     this.condition = condition;
     this.ticketIntervalMs = ticketIntervalMs;
+    this.ticketJitter = ticketJitter ?? 0;
     this.sessionTimerMs = sessionTimerMs ?? null;
     this.status = 'running';
     this.startedAt = Date.now();
     this._lastDispatchAt = this.startedAt;
     this.activeRules = { ...DEFAULT_RULES };
+  }
+
+  /** Returns a randomized interval: base ± (base * jitter). Minimum 500ms. */
+  randomizedInterval(): number {
+    if (this.ticketJitter <= 0) return this.ticketIntervalMs;
+    const offset = (Math.random() * 2 - 1) * this.ticketJitter * this.ticketIntervalMs;
+    return Math.max(500, Math.round(this.ticketIntervalMs + offset));
   }
 
   enqueue(ticket: Ticket): void {
@@ -125,7 +135,7 @@ export class Session {
     // Store remaining time until next dispatch tick
     if (this._dispatchTimer) {
       this._dispatchRemainingMs = Math.max(0, this.ticketIntervalMs - (Date.now() - this._lastDispatchAt));
-      clearInterval(this._dispatchTimer);
+      clearTimeout(this._dispatchTimer);
       this._dispatchTimer = null;
     }
 
@@ -152,7 +162,7 @@ export class Session {
     this.endedAt = Date.now();
     this.duration = this.endedAt - this.startedAt - this.totalPausedMs;
 
-    if (this._dispatchTimer) clearInterval(this._dispatchTimer);
+    if (this._dispatchTimer) clearTimeout(this._dispatchTimer);
     if (this._sessionTimer) clearTimeout(this._sessionTimer);
     this._ruleTimers.forEach(clearTimeout);
   }

@@ -23,52 +23,35 @@ export interface RouterContext {
 //  Dispatch & timer helpers                                           //
 // ------------------------------------------------------------------ //
 
-function dispatchNextTicket(
+function scheduleNextTicket(
   s: Session,
   broadcast: (event: object) => void,
+  delayMs?: number,
 ): void {
   if (s._ticketIndex >= s._ticketPool.length) {
-    if (s._dispatchTimer) clearInterval(s._dispatchTimer);
     s._dispatchTimer = null;
     console.log('[Session] Ticket pool exhausted.');
     broadcast({ type: 'session:poolExhausted', sessionId: s.id });
     return;
   }
-  const ticket = s._ticketPool[s._ticketIndex++];
-  s._lastDispatchAt = Date.now();
-  s.enqueue(ticket);
-  logEvent(s.id, s.participantId, s.condition, 'ticket:queued', {
-    ticketId: ticket.id,
-    ticketCategory: ticket.category,
-  });
-  broadcast({ type: 'ticket:queued', ticket, queueLength: s.queue.length });
-}
 
-function startDispatch(
-  s: Session,
-  broadcast: (event: object) => void,
-  initialDelayMs?: number,
-): void {
-  if (s._ticketIndex >= s._ticketPool.length) return;
+  const delay = delayMs ?? s.randomizedInterval();
 
-  const kick = () => {
-    dispatchNextTicket(s, broadcast);
-    // After first tick (which may have had a custom delay), switch to normal interval
-    if (usedInitialDelay) {
-      usedInitialDelay = false;
-      s._dispatchTimer = setInterval(() => dispatchNextTicket(s, broadcast), s.ticketIntervalMs);
-    }
-  };
+  s._dispatchTimer = setTimeout(() => {
+    if (s.status !== 'running') return;
 
-  let usedInitialDelay = false;
-  if (initialDelayMs != null && initialDelayMs !== s.ticketIntervalMs) {
-    usedInitialDelay = true;
-    s._dispatchTimer = setTimeout(() => {
-      kick();
-    }, initialDelayMs) as unknown as ReturnType<typeof setInterval>;
-  } else {
-    s._dispatchTimer = setInterval(() => dispatchNextTicket(s, broadcast), s.ticketIntervalMs);
-  }
+    const ticket = s._ticketPool[s._ticketIndex++];
+    s._lastDispatchAt = Date.now();
+    s.enqueue(ticket);
+    logEvent(s.id, s.participantId, s.condition, 'ticket:queued', {
+      ticketId: ticket.id,
+      ticketCategory: ticket.category,
+    });
+    broadcast({ type: 'ticket:queued', ticket, queueLength: s.queue.length });
+
+    // Chain the next dispatch
+    scheduleNextTicket(s, broadcast);
+  }, delay);
 }
 
 function scheduleRuleTimers(
@@ -169,6 +152,7 @@ export function handleMessage(ctx: RouterContext): void {
       const participantId = msg.params?.participantId;
       const condition = msg.params?.condition;
       const ticketIntervalMs = msg.params?.ticketIntervalMs;
+      const ticketJitter = msg.params?.ticketJitter;
       const sessionTimerMs = msg.params?.sessionTimerMs;
       const ruleSchedule = msg.params?.ruleSchedule ?? [];
 
@@ -183,7 +167,7 @@ export function handleMessage(ctx: RouterContext): void {
       const intervalMs =
         ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 
-      const s = new Session({ participantId, condition, ticketIntervalMs: intervalMs, sessionTimerMs });
+      const s = new Session({ participantId, condition, ticketIntervalMs: intervalMs, ticketJitter, sessionTimerMs });
       s._ticketPool = getTicketPool();
       s._ruleSchedule = ruleSchedule as RuleScheduleEntry[];
       setSession(s);
@@ -197,11 +181,12 @@ export function handleMessage(ctx: RouterContext): void {
         condition,
         rules: s.activeRules,
         ticketIntervalMs: intervalMs,
+        ticketJitter: s.ticketJitter,
         timerDurationMs: s.sessionTimerMs,
         startedAt: s.startedAt,
       });
 
-      startDispatch(s, broadcast);
+      scheduleNextTicket(s, broadcast);
       scheduleRuleTimers(s, broadcast);
       scheduleSessionTimer(s, broadcast, setSession);
 
@@ -302,7 +287,7 @@ export function handleMessage(ctx: RouterContext): void {
       session.resume();
 
       // Restart dispatch
-      startDispatch(session, broadcast, dispatchDelay ?? undefined);
+      scheduleNextTicket(session, broadcast, dispatchDelay ?? undefined);
 
       // Reschedule unfired rule timers based on elapsed active time
       scheduleRuleTimers(session, broadcast);
@@ -353,6 +338,7 @@ export function handleMessage(ctx: RouterContext): void {
             stats: session.stats,
             queue: session.queue,
             ticketIntervalMs: session.ticketIntervalMs,
+            ticketJitter: session.ticketJitter,
             timerDurationMs: session.sessionTimerMs,
             startedAt: session.startedAt,
             totalPausedMs: session.totalPausedMs,

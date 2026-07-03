@@ -68,6 +68,7 @@ export interface SessionStartMessage {
     participantId?: string;
     condition?: string;
     ticketIntervalMs?: number;
+    ticketJitter?: number;
     sessionTimerMs?: number;
     ruleSchedule?: RuleScheduleEntry[];
   };
