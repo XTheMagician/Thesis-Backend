@@ -31,10 +31,14 @@ export class Session {
   readonly ticketIntervalMs: number;
   readonly sessionTimerMs: number | null;
 
-  status: 'running' | 'ended';
+  status: 'running' | 'paused' | 'ended';
   readonly startedAt: number;
   endedAt: number | null = null;
   duration: number | null = null;
+
+  // Pause tracking
+  pausedAt: number | null = null;
+  totalPausedMs: number = 0;
 
   activeRules: ActiveRules;
   queue: QueuedTicket[] = [];
@@ -46,6 +50,18 @@ export class Session {
   _ruleTimers: ReturnType<typeof setTimeout>[] = [];
   _sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Remaining times stored on pause (so router can recreate timers)
+  _sessionTimerRemainingMs: number | null = null;
+  _dispatchRemainingMs: number | null = null;
+  _lastDispatchAt: number = 0;
+
+  // Dispatch state (so dispatch can be resumed after pause)
+  _ticketPool: Ticket[] = [];
+  _ticketIndex: number = 0;
+
+  // Rule schedule (so unfired rules can be rescheduled after pause)
+  _ruleSchedule: import('./types').RuleScheduleEntry[] = [];
+
   constructor({ participantId, condition, ticketIntervalMs, sessionTimerMs }: SessionConstructorParams) {
     this.id = `${participantId}-${condition}-${Date.now()}`;
     this.participantId = participantId;
@@ -54,6 +70,7 @@ export class Session {
     this.sessionTimerMs = sessionTimerMs ?? null;
     this.status = 'running';
     this.startedAt = Date.now();
+    this._lastDispatchAt = this.startedAt;
     this.activeRules = { ...DEFAULT_RULES };
   }
 
@@ -92,10 +109,48 @@ export class Session {
     return this.activeRules;
   }
 
+  pause(): void {
+    if (this.status !== 'running') return;
+    this.status = 'paused';
+    this.pausedAt = Date.now();
+
+    // Store remaining time for session timer
+    if (this._sessionTimer && this.sessionTimerMs != null) {
+      const elapsed = Date.now() - this.startedAt - this.totalPausedMs;
+      this._sessionTimerRemainingMs = Math.max(0, this.sessionTimerMs - elapsed);
+      clearTimeout(this._sessionTimer);
+      this._sessionTimer = null;
+    }
+
+    // Store remaining time until next dispatch tick
+    if (this._dispatchTimer) {
+      this._dispatchRemainingMs = Math.max(0, this.ticketIntervalMs - (Date.now() - this._lastDispatchAt));
+      clearInterval(this._dispatchTimer);
+      this._dispatchTimer = null;
+    }
+
+    // Clear rule timers (remaining times calculated by router)
+    this._ruleTimers.forEach(clearTimeout);
+    this._ruleTimers = [];
+  }
+
+  resume(): void {
+    if (this.status !== 'paused' || this.pausedAt == null) return;
+    this.totalPausedMs += Date.now() - this.pausedAt;
+    this.pausedAt = null;
+    this.status = 'running';
+  }
+
+  /** Elapsed active time (excludes paused time) */
+  get elapsedActiveMs(): number {
+    const now = this.status === 'paused' && this.pausedAt ? this.pausedAt : Date.now();
+    return now - this.startedAt - this.totalPausedMs;
+  }
+
   end(): void {
     this.status = 'ended';
     this.endedAt = Date.now();
-    this.duration = this.endedAt - this.startedAt;
+    this.duration = this.endedAt - this.startedAt - this.totalPausedMs;
 
     if (this._dispatchTimer) clearInterval(this._dispatchTimer);
     if (this._sessionTimer) clearTimeout(this._sessionTimer);

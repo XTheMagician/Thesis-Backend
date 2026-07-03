@@ -1,5 +1,5 @@
 import { Session } from './session';
-import { getTicketPool, startTicketDispatch } from './tickets';
+import { getTicketPool } from './tickets';
 import { logEvent, closeSession } from './logger';
 import type {
   ActiveRules,
@@ -19,6 +19,139 @@ export interface RouterContext {
   setSession: (s: Session | null) => void;
 }
 
+// ------------------------------------------------------------------ //
+//  Dispatch & timer helpers                                           //
+// ------------------------------------------------------------------ //
+
+function dispatchNextTicket(
+  s: Session,
+  broadcast: (event: object) => void,
+): void {
+  if (s._ticketIndex >= s._ticketPool.length) {
+    if (s._dispatchTimer) clearInterval(s._dispatchTimer);
+    s._dispatchTimer = null;
+    console.log('[Session] Ticket pool exhausted.');
+    broadcast({ type: 'session:poolExhausted', sessionId: s.id });
+    return;
+  }
+  const ticket = s._ticketPool[s._ticketIndex++];
+  s._lastDispatchAt = Date.now();
+  s.enqueue(ticket);
+  logEvent(s.id, s.participantId, s.condition, 'ticket:queued', {
+    ticketId: ticket.id,
+    ticketCategory: ticket.category,
+  });
+  broadcast({ type: 'ticket:queued', ticket, queueLength: s.queue.length });
+}
+
+function startDispatch(
+  s: Session,
+  broadcast: (event: object) => void,
+  initialDelayMs?: number,
+): void {
+  if (s._ticketIndex >= s._ticketPool.length) return;
+
+  const kick = () => {
+    dispatchNextTicket(s, broadcast);
+    // After first tick (which may have had a custom delay), switch to normal interval
+    if (usedInitialDelay) {
+      usedInitialDelay = false;
+      s._dispatchTimer = setInterval(() => dispatchNextTicket(s, broadcast), s.ticketIntervalMs);
+    }
+  };
+
+  let usedInitialDelay = false;
+  if (initialDelayMs != null && initialDelayMs !== s.ticketIntervalMs) {
+    usedInitialDelay = true;
+    s._dispatchTimer = setTimeout(() => {
+      kick();
+    }, initialDelayMs) as unknown as ReturnType<typeof setInterval>;
+  } else {
+    s._dispatchTimer = setInterval(() => dispatchNextTicket(s, broadcast), s.ticketIntervalMs);
+  }
+}
+
+function scheduleRuleTimers(
+  s: Session,
+  broadcast: (event: object) => void,
+): void {
+  if (s.condition !== 'hard' || s._ruleSchedule.length === 0) return;
+
+  const elapsed = s.elapsedActiveMs;
+
+  for (const entry of s._ruleSchedule) {
+    const firesAtMs = entry.atSecond * 1000;
+    const remainingMs = firesAtMs - elapsed;
+    if (remainingMs <= 0) continue; // already fired
+
+    const timer = setTimeout(() => {
+      if (s.status !== 'running') return;
+      const updatedRules = s.applyRules(entry.rules);
+      logEvent(s.id, s.participantId, s.condition, 'rule:changed', {
+        activeRules: updatedRules,
+        robotSpeech: entry.robotSpeech ?? null,
+      });
+      broadcast({
+        type: 'rule:changed',
+        rules: updatedRules,
+        robotSpeech: entry.robotSpeech ?? null,
+      });
+    }, remainingMs);
+    s._ruleTimers.push(timer);
+  }
+}
+
+function scheduleSessionTimer(
+  s: Session,
+  broadcast: (event: object) => void,
+  setSession: (s: Session | null) => void,
+  remainingMs?: number,
+): void {
+  if (s.sessionTimerMs == null) return;
+
+  const ms = remainingMs ?? s.sessionTimerMs;
+  if (ms <= 0) return;
+
+  s._sessionTimer = setTimeout(() => {
+    if (s.status !== 'running') return;
+    endSession(s, broadcast, setSession);
+    console.log(`[Session] Timer expired — ended: ${s.id}`);
+  }, ms);
+}
+
+function endSession(
+  s: Session,
+  broadcast: (event: object) => void,
+  setSession: (s: Session | null) => void,
+): void {
+  s.end();
+
+  const accuracy = computeAccuracy(s.stats.correct, s.stats.total);
+
+  logEvent(s.id, s.participantId, s.condition, 'session:ended', {
+    totalProcessed: s.stats.total,
+    totalCorrect: s.stats.correct,
+    totalWrong: s.stats.wrong,
+    accuracy,
+    sessionDurationMs: s.duration ?? undefined,
+  });
+
+  closeSession(s.id);
+
+  broadcast({
+    type: 'session:ended',
+    sessionId: s.id,
+    stats: { ...s.stats, accuracy },
+    durationMs: s.duration,
+  });
+
+  setSession(null);
+}
+
+// ------------------------------------------------------------------ //
+//  Main message handler                                               //
+// ------------------------------------------------------------------ //
+
 export function handleMessage(ctx: RouterContext): void {
   const { clientId, msg, clients, broadcast, getSession, setSession } = ctx;
   const session = getSession();
@@ -28,7 +161,7 @@ export function handleMessage(ctx: RouterContext): void {
     //  session:start                                                       //
     // ------------------------------------------------------------------ //
     case 'session:start': {
-      if (session?.status === 'running') {
+      if (session && session.status !== 'ended') {
         reply(clients, clientId, { type: 'error', message: 'A session is already running.' });
         return;
       }
@@ -51,6 +184,8 @@ export function handleMessage(ctx: RouterContext): void {
         ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 
       const s = new Session({ participantId, condition, ticketIntervalMs: intervalMs, sessionTimerMs });
+      s._ticketPool = getTicketPool();
+      s._ruleSchedule = ruleSchedule as RuleScheduleEntry[];
       setSession(s);
 
       logEvent(s.id, participantId, condition, 'session:started');
@@ -66,74 +201,9 @@ export function handleMessage(ctx: RouterContext): void {
         startedAt: s.startedAt,
       });
 
-      // Start ticket arrival (independent of sorting pace)
-      const pool = getTicketPool();
-      s._dispatchTimer = startTicketDispatch({
-        pool,
-        intervalMs,
-        onTicket(ticket) {
-          s.enqueue(ticket);
-          logEvent(s.id, participantId, condition, 'ticket:queued', {
-            ticketId: ticket.id,
-            ticketCategory: ticket.category,
-          });
-          broadcast({ type: 'ticket:queued', ticket, queueLength: s.queue.length });
-        },
-        onExhausted() {
-          console.log('[Session] Ticket pool exhausted.');
-          broadcast({ type: 'session:poolExhausted', sessionId: s.id });
-        },
-      });
-
-      // Schedule rule changes — hard condition only
-      if (condition === 'hard') {
-        for (const entry of ruleSchedule as RuleScheduleEntry[]) {
-          const timer = setTimeout(() => {
-            const updatedRules = s.applyRules(entry.rules);
-            logEvent(s.id, participantId, condition, 'rule:changed', {
-              activeRules: updatedRules,
-              robotSpeech: entry.robotSpeech ?? null,
-            });
-            broadcast({
-              type: 'rule:changed',
-              rules: updatedRules,
-              robotSpeech: entry.robotSpeech ?? null,
-            });
-          }, entry.atSecond * 1000);
-          s._ruleTimers.push(timer);
-        }
-      }
-
-      // Auto-end session when timer expires
-      if (s.sessionTimerMs) {
-        s._sessionTimer = setTimeout(() => {
-          if (s.status !== 'running') return;
-
-          s.end();
-
-          const acc = computeAccuracy(s.stats.correct, s.stats.total);
-
-          logEvent(s.id, s.participantId, s.condition, 'session:ended', {
-            totalProcessed: s.stats.total,
-            totalCorrect: s.stats.correct,
-            totalWrong: s.stats.wrong,
-            accuracy: acc,
-            sessionDurationMs: s.duration ?? undefined,
-          });
-
-          closeSession(s.id);
-
-          broadcast({
-            type: 'session:ended',
-            sessionId: s.id,
-            stats: { ...s.stats, accuracy: acc },
-            durationMs: s.duration,
-          });
-
-          console.log(`[Session] Timer expired — ended: ${s.id}`);
-          setSession(null);
-        }, s.sessionTimerMs);
-      }
+      startDispatch(s, broadcast);
+      scheduleRuleTimers(s, broadcast);
+      scheduleSessionTimer(s, broadcast, setSession);
 
       console.log(`[Session] Started: ${s.id}`);
       break;
@@ -196,37 +266,75 @@ export function handleMessage(ctx: RouterContext): void {
     }
 
     // ------------------------------------------------------------------ //
+    //  session:pause                                                       //
+    // ------------------------------------------------------------------ //
+    case 'session:pause': {
+      if (!session || session.status !== 'running') {
+        reply(clients, clientId, { type: 'error', message: 'No running session to pause.' });
+        return;
+      }
+
+      session.pause();
+
+      logEvent(session.id, session.participantId, session.condition, 'session:paused');
+
+      broadcast({
+        type: 'session:paused',
+        sessionId: session.id,
+      });
+
+      console.log(`[Session] Paused: ${session.id}`);
+      break;
+    }
+
+    // ------------------------------------------------------------------ //
+    //  session:resume                                                      //
+    // ------------------------------------------------------------------ //
+    case 'session:resume': {
+      if (!session || session.status !== 'paused') {
+        reply(clients, clientId, { type: 'error', message: 'No paused session to resume.' });
+        return;
+      }
+
+      const dispatchDelay = session._dispatchRemainingMs;
+      const sessionTimerRemaining = session._sessionTimerRemainingMs;
+
+      session.resume();
+
+      // Restart dispatch
+      startDispatch(session, broadcast, dispatchDelay ?? undefined);
+
+      // Reschedule unfired rule timers based on elapsed active time
+      scheduleRuleTimers(session, broadcast);
+
+      // Restart session timer with remaining time
+      if (sessionTimerRemaining != null) {
+        scheduleSessionTimer(session, broadcast, setSession, sessionTimerRemaining);
+      }
+
+      logEvent(session.id, session.participantId, session.condition, 'session:resumed');
+
+      broadcast({
+        type: 'session:resumed',
+        sessionId: session.id,
+        remainingMs: sessionTimerRemaining,
+      });
+
+      console.log(`[Session] Resumed: ${session.id}`);
+      break;
+    }
+
+    // ------------------------------------------------------------------ //
     //  session:end                                                         //
     // ------------------------------------------------------------------ //
     case 'session:end': {
-      if (!session || session.status !== 'running') {
+      if (!session || (session.status !== 'running' && session.status !== 'paused')) {
         reply(clients, clientId, { type: 'error', message: 'No active session.' });
         return;
       }
 
-      session.end();
-
-      const accuracy = computeAccuracy(session.stats.correct, session.stats.total);
-
-      logEvent(session.id, session.participantId, session.condition, 'session:ended', {
-        totalProcessed: session.stats.total,
-        totalCorrect: session.stats.correct,
-        totalWrong: session.stats.wrong,
-        accuracy,
-        sessionDurationMs: session.duration ?? undefined,
-      });
-
-      closeSession(session.id);
-
-      broadcast({
-        type: 'session:ended',
-        sessionId: session.id,
-        stats: { ...session.stats, accuracy },
-        durationMs: session.duration,
-      });
-
+      endSession(session, broadcast, setSession);
       console.log(`[Session] Ended: ${session.id}`);
-      setSession(null);
       break;
     }
 
@@ -234,7 +342,7 @@ export function handleMessage(ctx: RouterContext): void {
     //  session:status — any client can request the current snapshot       //
     // ------------------------------------------------------------------ //
     case 'session:status': {
-      const payload = session
+      const payload = session && session.status !== 'ended'
         ? {
             type: 'session:status',
             status: session.status,
@@ -243,9 +351,12 @@ export function handleMessage(ctx: RouterContext): void {
             condition: session.condition,
             rules: session.activeRules,
             stats: session.stats,
-            queue: session.queue, // full queue so reconnected clients can rebuild
+            queue: session.queue,
+            ticketIntervalMs: session.ticketIntervalMs,
             timerDurationMs: session.sessionTimerMs,
             startedAt: session.startedAt,
+            totalPausedMs: session.totalPausedMs,
+            pausedAt: session.pausedAt,
           }
         : { type: 'session:status', status: 'idle' };
 

@@ -83,6 +83,14 @@ export interface SessionEndMessage {
   type: 'session:end';
 }
 
+export interface SessionPauseMessage {
+  type: 'session:pause';
+}
+
+export interface SessionResumeMessage {
+  type: 'session:resume';
+}
+
 export interface SessionStatusMessage {
   type: 'session:status';
 }
@@ -96,5 +104,7 @@ export type InboundMessage =
   | SessionStartMessage
   | TicketSortMessage
   | SessionEndMessage
+  | SessionPauseMessage
+  | SessionResumeMessage
   | SessionStatusMessage
   | AvpSpeechDoneMessage;
