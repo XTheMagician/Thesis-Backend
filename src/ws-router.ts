@@ -36,6 +36,7 @@ export function handleMessage(ctx: RouterContext): void {
       const participantId = msg.params?.participantId;
       const condition = msg.params?.condition;
       const ticketIntervalMs = msg.params?.ticketIntervalMs;
+      const sessionTimerMs = msg.params?.sessionTimerMs;
       const ruleSchedule = msg.params?.ruleSchedule ?? [];
 
       if (!participantId || !isCondition(condition)) {
@@ -49,7 +50,7 @@ export function handleMessage(ctx: RouterContext): void {
       const intervalMs =
         ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 
-      const s = new Session({ participantId, condition, ticketIntervalMs: intervalMs });
+      const s = new Session({ participantId, condition, ticketIntervalMs: intervalMs, sessionTimerMs });
       setSession(s);
 
       logEvent(s.id, participantId, condition, 'session:started');
@@ -61,6 +62,8 @@ export function handleMessage(ctx: RouterContext): void {
         condition,
         rules: s.activeRules,
         ticketIntervalMs: intervalMs,
+        timerDurationMs: s.sessionTimerMs,
+        startedAt: s.startedAt,
       });
 
       // Start ticket arrival (independent of sorting pace)
@@ -99,6 +102,37 @@ export function handleMessage(ctx: RouterContext): void {
           }, entry.atSecond * 1000);
           s._ruleTimers.push(timer);
         }
+      }
+
+      // Auto-end session when timer expires
+      if (s.sessionTimerMs) {
+        s._sessionTimer = setTimeout(() => {
+          if (s.status !== 'running') return;
+
+          s.end();
+
+          const acc = computeAccuracy(s.stats.correct, s.stats.total);
+
+          logEvent(s.id, s.participantId, s.condition, 'session:ended', {
+            totalProcessed: s.stats.total,
+            totalCorrect: s.stats.correct,
+            totalWrong: s.stats.wrong,
+            accuracy: acc,
+            sessionDurationMs: s.duration ?? undefined,
+          });
+
+          closeSession(s.id);
+
+          broadcast({
+            type: 'session:ended',
+            sessionId: s.id,
+            stats: { ...s.stats, accuracy: acc },
+            durationMs: s.duration,
+          });
+
+          console.log(`[Session] Timer expired — ended: ${s.id}`);
+          setSession(null);
+        }, s.sessionTimerMs);
       }
 
       console.log(`[Session] Started: ${s.id}`);
@@ -210,6 +244,8 @@ export function handleMessage(ctx: RouterContext): void {
             rules: session.activeRules,
             stats: session.stats,
             queue: session.queue, // full queue so reconnected clients can rebuild
+            timerDurationMs: session.sessionTimerMs,
+            startedAt: session.startedAt,
           }
         : { type: 'session:status', status: 'idle' };
 

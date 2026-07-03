@@ -21,6 +21,7 @@ export interface SessionConstructorParams {
   participantId: string;
   condition: Condition;
   ticketIntervalMs: number;
+  sessionTimerMs?: number;
 }
 
 export class Session {
@@ -28,6 +29,7 @@ export class Session {
   readonly participantId: string;
   readonly condition: Condition;
   readonly ticketIntervalMs: number;
+  readonly sessionTimerMs: number | null;
 
   status: 'running' | 'ended';
   readonly startedAt: number;
@@ -42,12 +44,14 @@ export class Session {
   // Timer handles for cleanup — managed externally by the router
   _dispatchTimer: ReturnType<typeof setInterval> | null = null;
   _ruleTimers: ReturnType<typeof setTimeout>[] = [];
+  _sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor({ participantId, condition, ticketIntervalMs }: SessionConstructorParams) {
+  constructor({ participantId, condition, ticketIntervalMs, sessionTimerMs }: SessionConstructorParams) {
     this.id = `${participantId}-${condition}-${Date.now()}`;
     this.participantId = participantId;
     this.condition = condition;
     this.ticketIntervalMs = ticketIntervalMs;
+    this.sessionTimerMs = sessionTimerMs ?? null;
     this.status = 'running';
     this.startedAt = Date.now();
     this.activeRules = { ...DEFAULT_RULES };
@@ -94,6 +98,7 @@ export class Session {
     this.duration = this.endedAt - this.startedAt;
 
     if (this._dispatchTimer) clearInterval(this._dispatchTimer);
+    if (this._sessionTimer) clearTimeout(this._sessionTimer);
     this._ruleTimers.forEach(clearTimeout);
   }
 }
