@@ -3,182 +3,182 @@
     {
       "id": "T001",
       "category": "software",
-      "subject": "Login button unresponsive",
-      "body": "The login button on the main page doesn't respond when clicked. I've tried Chrome and Firefox."
+      "subject": "Login-Button reagiert nicht",
+      "body": "Der Login-Button auf der Hauptseite reagiert nicht, wenn ich darauf klicke. Ich habe es mit Chrome und Firefox versucht."
     },
     {
       "id": "T002",
       "category": "software",
-      "subject": "App crashes on startup",
-      "body": "Every time I open the application it crashes immediately. I have reinstalled it twice with no change."
+      "subject": "App stürzt beim Start ab",
+      "body": "Jedes Mal, wenn ich die Anwendung öffne, stürzt sie sofort ab. Ich habe sie zweimal neu installiert, ohne Erfolg."
     },
     {
       "id": "T003",
       "category": "software",
-      "subject": "Export to PDF not working",
-      "body": "When I click 'Export to PDF', nothing happens. The download never starts. Other exports work fine."
+      "subject": "PDF-Export funktioniert nicht",
+      "body": "Wenn ich auf 'Als PDF exportieren' klicke, passiert nichts. Der Download startet nicht. Andere Exporte funktionieren einwandfrei."
     },
     {
       "id": "T004",
       "category": "software",
-      "subject": "Dashboard loading very slowly",
-      "body": "The dashboard takes over 30 seconds to load. It used to be instant. Nothing changed on my end."
+      "subject": "Dashboard lädt sehr langsam",
+      "body": "Das Dashboard braucht über 30 Sekunden zum Laden. Früher ging es sofort. Auf meiner Seite hat sich nichts geändert."
     },
     {
       "id": "T005",
       "category": "software",
-      "subject": "Notifications not appearing",
-      "body": "I stopped receiving in-app notifications two days ago. My settings are correct and unchanged."
+      "subject": "Benachrichtigungen erscheinen nicht",
+      "body": "Seit zwei Tagen erhalte ich keine In-App-Benachrichtigungen mehr. Meine Einstellungen sind korrekt und unverändert."
     },
     {
       "id": "T006",
       "category": "software",
-      "subject": "Search returns no results",
-      "body": "The search bar shows zero results for any query, even for items I can see in the list."
+      "subject": "Suche liefert keine Ergebnisse",
+      "body": "Die Suchleiste zeigt bei jeder Anfrage null Ergebnisse an, selbst für Einträge, die ich in der Liste sehen kann."
     },
     {
       "id": "T007",
       "category": "shipping",
-      "subject": "Tracking number not updating",
-      "body": "My tracking number has shown 'label created' for 5 days. The package does not seem to have moved."
+      "subject": "Sendungsverfolgung aktualisiert sich nicht",
+      "body": "Meine Sendungsnummer zeigt seit 5 Tagen 'Label erstellt' an. Das Paket scheint sich nicht bewegt zu haben."
     },
     {
       "id": "T008",
       "category": "shipping",
-      "subject": "Wrong delivery address on order",
-      "body": "I noticed I entered the wrong address after placing the order. Can this be corrected before dispatch?"
+      "subject": "Falsche Lieferadresse bei Bestellung",
+      "body": "Mir ist aufgefallen, dass ich nach der Bestellung die falsche Adresse eingegeben habe. Kann das vor dem Versand korrigiert werden?"
     },
     {
       "id": "T009",
       "category": "shipping",
-      "subject": "Package marked delivered but not received",
-      "body": "The tracking says my package was delivered yesterday but I have not received it. No delivery note left either."
+      "subject": "Paket als zugestellt markiert, aber nicht erhalten",
+      "body": "Die Sendungsverfolgung sagt, mein Paket wurde gestern zugestellt, aber ich habe es nicht erhalten. Es wurde auch keine Benachrichtigung hinterlassen."
     },
     {
       "id": "T010",
       "category": "shipping",
-      "subject": "Shipping delay — urgent",
-      "body": "My order was due 4 days ago and still hasn't arrived. I need it for a presentation next week."
+      "subject": "Lieferverzögerung — dringend",
+      "body": "Meine Bestellung hätte vor 4 Tagen ankommen sollen und ist immer noch nicht da. Ich brauche sie für eine Präsentation nächste Woche."
     },
     {
       "id": "T011",
       "category": "shipping",
-      "subject": "Estimated delivery keeps changing",
-      "body": "The estimated delivery date has changed three times in 2 days. I need a reliable date."
+      "subject": "Voraussichtliches Lieferdatum ändert sich ständig",
+      "body": "Das voraussichtliche Lieferdatum hat sich in 2 Tagen dreimal geändert. Ich brauche ein verlässliches Datum."
     },
     {
       "id": "T012",
       "category": "shipping",
-      "subject": "Delivered to wrong address",
-      "body": "The courier left my parcel at a neighbour's address without informing me. I need help recovering it."
+      "subject": "An falsche Adresse geliefert",
+      "body": "Der Kurier hat mein Paket bei einem Nachbarn abgegeben, ohne mich zu informieren. Ich brauche Hilfe, es zurückzubekommen."
     },
     {
       "id": "T013",
       "category": "general",
-      "subject": "How do I reset my password?",
-      "body": "I forgot my password and the reset email is not arriving, even after several attempts."
+      "subject": "Wie kann ich mein Passwort zurücksetzen?",
+      "body": "Ich habe mein Passwort vergessen und die Zurücksetzungs-E-Mail kommt nicht an, auch nach mehreren Versuchen."
     },
     {
       "id": "T014",
       "category": "general",
-      "subject": "What are your support hours?",
-      "body": "I'd like to know when your customer support team is available by phone."
+      "subject": "Wann ist Ihr Support erreichbar?",
+      "body": "Ich würde gerne wissen, wann Ihr Kundensupport-Team telefonisch erreichbar ist."
     },
     {
       "id": "T015",
       "category": "general",
-      "subject": "Is the software compatible with macOS 14?",
-      "body": "The website only mentions Windows compatibility. Does your software run on macOS 14?"
+      "subject": "Ist die Software mit macOS 14 kompatibel?",
+      "body": "Auf der Website wird nur Windows-Kompatibilität erwähnt. Läuft Ihre Software auch auf macOS 14?"
     },
     {
       "id": "T016",
       "category": "general",
-      "subject": "How do I upgrade my subscription?",
-      "body": "I'd like to upgrade from the basic to the pro plan. I cannot find the option in settings."
+      "subject": "Wie kann ich mein Abonnement upgraden?",
+      "body": "Ich möchte vom Basis- auf den Pro-Plan wechseln. Ich finde die Option in den Einstellungen nicht."
     },
     {
       "id": "T017",
       "category": "general",
-      "subject": "Can I transfer my account to another email?",
-      "body": "I changed my company email address and would like to move my account to the new one."
+      "subject": "Kann ich mein Konto auf eine andere E-Mail übertragen?",
+      "body": "Ich habe meine Firmen-E-Mail-Adresse geändert und möchte mein Konto auf die neue Adresse übertragen."
     },
     {
       "id": "T018",
       "category": "general",
-      "subject": "Looking for the user manual",
-      "body": "I cannot find a downloadable user manual or documentation on the website. Could you send it?"
+      "subject": "Suche nach dem Benutzerhandbuch",
+      "body": "Ich kann auf der Website kein herunterladbares Benutzerhandbuch oder Dokumentation finden. Könnten Sie es mir zusenden?"
     },
     {
       "id": "T019",
       "category": "accounting",
-      "subject": "Invoice amount incorrect",
-      "body": "The invoice I received shows €240 but I should only be charged €120 for the basic plan."
+      "subject": "Rechnungsbetrag falsch",
+      "body": "Die Rechnung, die ich erhalten habe, zeigt 240 € an, aber für den Basis-Plan sollten nur 120 € berechnet werden."
     },
     {
       "id": "T020",
       "category": "accounting",
-      "subject": "Charged twice this month",
-      "body": "My bank statement shows two identical charges for my subscription this month. Please refund one."
+      "subject": "Diesen Monat doppelt abgebucht",
+      "body": "Mein Kontoauszug zeigt zwei identische Abbuchungen für mein Abonnement diesen Monat. Bitte erstatten Sie eine davon."
     },
     {
       "id": "T021",
       "category": "accounting",
-      "subject": "VAT number missing from invoice",
-      "body": "My company requires the VAT number on invoices for tax purposes. Can you re-issue the latest one?"
+      "subject": "USt-IdNr. fehlt auf der Rechnung",
+      "body": "Mein Unternehmen benötigt die USt-IdNr. auf Rechnungen für steuerliche Zwecke. Können Sie die letzte Rechnung erneut ausstellen?"
     },
     {
       "id": "T022",
       "category": "accounting",
-      "subject": "Payment failed but bank was charged",
-      "body": "The checkout said my payment failed, but I can see the charge on my credit card statement."
+      "subject": "Zahlung fehlgeschlagen, aber Konto belastet",
+      "body": "Der Bezahlvorgang sagte, meine Zahlung sei fehlgeschlagen, aber ich sehe die Abbuchung auf meinem Kreditkartenauszug."
     },
     {
       "id": "T023",
       "category": "hr",
-      "subject": "Annual leave request",
-      "body": "I'd like to request 2 weeks of annual leave starting August 12th. Please confirm whether this is possible."
+      "subject": "Urlaubsantrag",
+      "body": "Ich möchte 2 Wochen Jahresurlaub ab dem 12. August beantragen. Bitte bestätigen Sie, ob das möglich ist."
     },
     {
       "id": "T024",
       "category": "hr",
-      "subject": "Salary discrepancy on last paycheck",
-      "body": "My last paycheck was €200 less than expected. Could HR look into this as soon as possible?"
+      "subject": "Gehaltsabweichung auf letzter Abrechnung",
+      "body": "Meine letzte Gehaltsabrechnung war 200 € weniger als erwartet. Könnte die Personalabteilung das so bald wie möglich prüfen?"
     },
     {
       "id": "T025",
       "category": "hr",
-      "subject": "Remote work policy question",
-      "body": "I would like to work from abroad for 6 weeks this summer. What does company policy say about this?"
+      "subject": "Frage zur Homeoffice-Regelung",
+      "body": "Ich würde diesen Sommer gerne 6 Wochen aus dem Ausland arbeiten. Was sagt die Unternehmensrichtlinie dazu?"
     },
     {
       "id": "T026",
       "category": "hr",
-      "subject": "Contract extension inquiry",
-      "body": "My current contract ends in 3 months. I'm interested in discussing a potential extension."
+      "subject": "Anfrage zur Vertragsverlängerung",
+      "body": "Mein aktueller Vertrag endet in 3 Monaten. Ich würde gerne eine mögliche Verlängerung besprechen."
     },
     {
       "id": "T027",
       "category": "returns",
-      "subject": "Defective item — want to return",
-      "body": "The laptop I received has a cracked screen straight out of the box. I'd like to return it for a replacement."
+      "subject": "Defekter Artikel — Rückgabe gewünscht",
+      "body": "Der Laptop, den ich erhalten habe, hat einen gesprungenen Bildschirm direkt aus der Verpackung. Ich möchte ihn gegen einen Ersatz zurückgeben."
     },
     {
       "id": "T028",
       "category": "returns",
-      "subject": "Wrong colour delivered",
-      "body": "I ordered the blue model but received a red one. I'd like the correct item sent and a return label."
+      "subject": "Falsche Farbe geliefert",
+      "body": "Ich habe das blaue Modell bestellt, aber ein rotes erhalten. Ich hätte gerne den richtigen Artikel und ein Rücksendeetikett."
     },
     {
       "id": "T029",
       "category": "returns",
-      "subject": "No refund after 10 days",
-      "body": "I sent my return 10 days ago and have not received a confirmation or refund. Please advise."
+      "subject": "Keine Rückerstattung nach 10 Tagen",
+      "body": "Ich habe meine Rücksendung vor 10 Tagen abgeschickt und weder eine Bestätigung noch eine Rückerstattung erhalten. Bitte um Auskunft."
     },
     {
       "id": "T030",
       "category": "returns",
-      "subject": "Item damaged in transit",
-      "body": "The package arrived visibly damaged. The item inside is broken and completely unusable."
+      "subject": "Artikel beim Transport beschädigt",
+      "body": "Das Paket kam sichtbar beschädigt an. Der Artikel darin ist kaputt und völlig unbrauchbar."
     }
   ]
 }
