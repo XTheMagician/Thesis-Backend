@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
 import { DialogManager } from './robot/dialog-manager';
+import { SpeechScheduler } from './robot/scheduler';
 import { handleMessage } from './ws-router';
 import { getExportPath, getJsonlExportPath, getAllExportCsv } from './logger';
 
@@ -57,15 +58,19 @@ const httpServer = createServer(app);
 // ------------------------------------------------------------------ //
 const wss = new WebSocketServer({ server: httpServer });
 const hub = new Hub(wss);
-const orchestrator = new Orchestrator(hub);
 const dialog = new DialogManager(hub);
+const orchestrator = new Orchestrator(hub, dialog);
 
 hub.onMessage((clientId, msg) => handleMessage({ clientId, msg, hub, orchestrator, dialog }));
 hub.onUnityBinary((_clientId, pcm) => dialog.handleMicAudio(pcm));
 
-// Future robot subsystems (voice-provider session, dialog manager,
-// small-talk scheduler) register here:
-//   orchestrator.register(subsystem);
+// Robot subsystems, driven by the study-session lifecycle
+orchestrator.register({
+  name: 'voice',
+  onSessionStart: (session) => dialog.startVoice(session.robotConfig),
+  onSessionEnd: () => dialog.stopVoice(),
+});
+orchestrator.register(new SpeechScheduler(dialog));
 
 // ------------------------------------------------------------------ //
 //  Start                                                               //

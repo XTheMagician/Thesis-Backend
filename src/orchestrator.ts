@@ -3,6 +3,7 @@ import { getTicketPool } from './task/tickets';
 import { resolveRobotConfig } from './config/conditions';
 import { logEvent, closeSession, type LogMeta } from './logger';
 import type { Hub } from './hub';
+import type { DialogManager } from './robot/dialog-manager';
 import type {
   Decision,
   RobotCondition,
@@ -46,7 +47,7 @@ export class Orchestrator {
   private activeSession: Session | null = null;
   private subsystems: Subsystem[] = [];
 
-  constructor(private hub: Hub) {}
+  constructor(private hub: Hub, private dialog: DialogManager) {}
 
   register(subsystem: Subsystem): void {
     this.subsystems.push(subsystem);
@@ -95,6 +96,7 @@ export class Orchestrator {
       taskCondition: session.taskCondition,
       robotCondition: session.robotCondition,
       rules: session.activeRules,
+      robotConfig,
       ticketIntervalMs: session.ticketIntervalMs,
       ticketJitter: session.ticketJitter,
       timerDurationMs: session.sessionTimerMs,
@@ -228,6 +230,7 @@ export class Orchestrator {
           taskCondition: session.taskCondition,
           robotCondition: session.robotCondition,
           rules: session.activeRules,
+          robotConfig: session.robotConfig,
           stats: session.stats,
           queue: session.queue,
           ticketIntervalMs: session.ticketIntervalMs,
@@ -263,6 +266,15 @@ export class Orchestrator {
           robotSpeech: event.robotSpeech,
         });
         this.hub.broadcast({ type: 'rule:changed', rules: event.rules, robotSpeech: event.robotSpeech });
+        // Announcements jump the speech queue but never cut off ongoing speech
+        if (event.robotSpeech) {
+          this.dialog.requestSpeech({
+            text: event.robotSpeech,
+            mode: 'verbatim',
+            source: 'task-event',
+            priority: 'high',
+          });
+        }
         break;
 
       case 'poolExhausted':

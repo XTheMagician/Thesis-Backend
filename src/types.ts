@@ -18,13 +18,24 @@ export type TicketCategory = 'software' | 'shipping' | 'general' | 'accounting' 
  * Behaviour settings the robot derives from the robot condition.
  * Presets live in config/conditions.ts so every participant in the same
  * cell gets exactly the same treatment; the resolved config is logged
- * at session start.
+ * at session start. Scheduler parameters are deliberately NOT overridable
+ * per session — the config file is the single source of truth.
  */
 export interface RobotConfig {
   systemPrompt: string;
-  smallTalkEnabled: boolean;
   responseLength: 'short' | 'long';
   voice: string;
+
+  /** Small talk — the talkativeness manipulation */
+  smallTalkEnabled: boolean;
+  smallTalkIntervalSec: number;
+  smallTalkJitter: number; // 0..1, interval randomization like ticketJitter
+  smallTalkTopics: string[];
+
+  /** Progress reports — task-relevant, active in both conditions */
+  progressReportsEnabled: boolean;
+  progressReportIntervalSec: number;
+  progressReportJitter: number;
 }
 
 export interface Ticket {

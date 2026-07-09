@@ -1,7 +1,7 @@
 import { OpenAiRealtimeSession } from './openai-realtime';
 import { resolveRobotConfig } from '../config/conditions';
 import type { Hub } from '../hub';
-import type { RobotState } from '../types';
+import type { RobotConfig, RobotState } from '../types';
 
 // ------------------------------------------------------------------ //
 //  Dialog manager                                                      //
@@ -65,26 +65,38 @@ export class DialogManager {
   //  Voice session lifecycle                                             //
   // ------------------------------------------------------------------ //
 
-  startVoice(): void {
-    if (this.session) {
-      this.error('Voice session already running — stop it first.');
-      return;
-    }
-
+  /**
+   * Start the provider voice session. Called with the participant's resolved
+   * RobotConfig when a study session starts; without arguments (manual
+   * robot:voice:start from the test page) it falls back to the talkative
+   * preset. An already-running voice session is replaced, so a study session
+   * always speaks with its own condition's prompt and voice.
+   */
+  startVoice(config?: RobotConfig): void {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey || apiKey === 'sk-REPLACE_ME') {
       this.error('OPENAI_API_KEY is not set in .env');
       return;
     }
 
+    if (this.session) {
+      console.log('[Dialog] restarting voice session with new config');
+      this.stopVoice();
+    }
+
+    const robotConfig = config ?? resolveRobotConfig('talkative');
     this.transition('connecting', 'voice:start');
 
     const session = new OpenAiRealtimeSession({
       apiKey,
       model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime',
-      instructions: resolveRobotConfig('talkative').systemPrompt,
-      voice: 'marin',
-      onEvent: (event) => this.handleProviderEvent(event),
+      instructions: robotConfig.systemPrompt,
+      voice: robotConfig.voice,
+      // Ignore events from a superseded session (e.g. its close racing a restart)
+      onEvent: (event) => {
+        if (this.session !== session) return;
+        this.handleProviderEvent(event);
+      },
     });
 
     this.session = session;
@@ -93,8 +105,12 @@ export class DialogManager {
 
   stopVoice(): void {
     if (!this.session) return;
-    this.session.close();
-    this.session = null;
+    const session = this.session;
+    this.session = null; // the identity guard filters this session's late events
+    session.close();
+    this.clearPlaybackFallback();
+    this.queue = [];
+    this.transition('offline', 'voice:stop');
   }
 
   /** Mic PCM arriving from the unity client. */
