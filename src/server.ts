@@ -1,12 +1,11 @@
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import express from 'express';
-import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
+import { Hub } from './hub';
+import { Orchestrator } from './orchestrator';
 import { handleMessage } from './ws-router';
-import { getExportPath, getAllExportCsv } from './logger';
-import type { InboundMessage, WsClient } from './types';
-import type { Session } from './session';
+import { getExportPath, getJsonlExportPath, getAllExportCsv } from './logger';
 
 dotenv.config();
 
@@ -22,8 +21,8 @@ app.use(express.json());
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    clients: clients.size,
-    session: activeSession?.id ?? null,
+    clients: hub.clientCount,
+    session: orchestrator.session?.id ?? null,
   });
 });
 
@@ -43,68 +42,28 @@ app.get('/export-all', (_req, res) => {
   res.send(csv);
 });
 
+// Download a session's full JSONL event log
+app.get('/export-jsonl/:sessionId', (req, res) => {
+  const filePath = getJsonlExportPath(req.params.sessionId);
+  if (!filePath) return void res.status(404).json({ error: 'Session log not found.' });
+  res.download(filePath);
+});
+
 const httpServer = createServer(app);
 
 // ------------------------------------------------------------------ //
-//  WebSocket server (shares the HTTP port)                            //
+//  WebSocket hub + orchestrator wiring                                 //
 // ------------------------------------------------------------------ //
 const wss = new WebSocketServer({ server: httpServer });
+const hub = new Hub(wss);
+const orchestrator = new Orchestrator(hub);
 
-const clients = new Map<string, WsClient>();
-let activeSession: Session | null = null;
+hub.onMessage((clientId, msg) => handleMessage({ clientId, msg, hub, orchestrator }));
 
-function broadcast(event: object): void {
-  const msg = JSON.stringify(event);
-  for (const { ws } of clients.values()) {
-    if (ws.readyState === 1 /* OPEN */) ws.send(msg);
-  }
-}
-
-wss.on('connection', (ws) => {
-  const clientId = randomUUID();
-  clients.set(clientId, { ws, type: 'unknown' });
-  console.log(`[WS] + ${clientId}`);
-
-  ws.send(JSON.stringify({ type: 'server:hello', clientId }));
-
-  ws.on('message', (raw) => {
-    let msg: { type: string; [key: string]: unknown };
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid JSON.' }));
-      return;
-    }
-
-    // Identification handshake — handled here before routing
-    if (msg.type === 'client:identify') {
-      const client = clients.get(clientId)!;
-      const t = msg['clientType'];
-      client.type = (t === 'browser' || t === 'unity') ? t : 'unknown';
-      console.log(`[WS] ${clientId} → ${client.type}`);
-      ws.send(JSON.stringify({ type: 'client:identified', clientId, clientType: client.type }));
-      return;
-    }
-
-    handleMessage({
-      clientId,
-      msg: msg as InboundMessage,
-      clients,
-      broadcast,
-      getSession: () => activeSession,
-      setSession: (s) => { activeSession = s; },
-    });
-  });
-
-  ws.on('close', () => {
-    console.log(`[WS] - ${clientId}`);
-    clients.delete(clientId);
-  });
-
-  ws.on('error', (err) => {
-    console.error(`[WS] Error on ${clientId}: ${err.message}`);
-  });
-});
+// Future robot subsystems (voice-provider session, dialog manager,
+// small-talk scheduler) register here:
+//   orchestrator.register(subsystem);
+//   hub.onUnityBinary((clientId, pcm) => providerSession.appendAudio(pcm));
 
 // ------------------------------------------------------------------ //
 //  Start                                                               //
@@ -112,6 +71,7 @@ wss.on('connection', (ws) => {
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] Listening on port ${PORT} (all interfaces)`);
   console.log(`[Server] Health: http://localhost:${PORT}/health`);
-  console.log(`[Server] Export: http://localhost:${PORT}/export/<sessionId>`);
-  console.log(`[Server] Export all: http://localhost:${PORT}/export-all`);
+  console.log(`[Server] Export CSV: http://localhost:${PORT}/export/<sessionId>`);
+  console.log(`[Server] Export all CSV: http://localhost:${PORT}/export-all`);
+  console.log(`[Server] Export JSONL: http://localhost:${PORT}/export-jsonl/<sessionId>`);
 });

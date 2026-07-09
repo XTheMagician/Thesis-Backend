@@ -5,9 +5,27 @@ import type { WebSocket } from 'ws';
 // ------------------------------------------------------------------ //
 
 export type ClientType = 'browser' | 'unity' | 'unknown';
-export type Condition = 'easy' | 'hard';
+
+/** 2×2 design, axis 1: task cognitive load */
+export type TaskCondition = 'easy' | 'hard';
+/** 2×2 design, axis 2: robot talkativeness */
+export type RobotCondition = 'talkative' | 'quiet';
+
 export type Decision = 'ai' | 'human';
 export type TicketCategory = 'software' | 'shipping' | 'general' | 'accounting' | 'hr' | 'returns';
+
+/**
+ * Behaviour settings the robot derives from the robot condition.
+ * Presets live in config/conditions.ts so every participant in the same
+ * cell gets exactly the same treatment; the resolved config is logged
+ * at session start.
+ */
+export interface RobotConfig {
+  systemPrompt: string;
+  smallTalkEnabled: boolean;
+  responseLength: 'short' | 'long';
+  voice: string;
+}
 
 export interface Ticket {
   id: string;
@@ -66,6 +84,9 @@ export interface SessionStartMessage {
   type: 'session:start';
   params?: {
     participantId?: string;
+    taskCondition?: string;
+    robotCondition?: string;
+    /** Legacy alias for taskCondition (pre-2×2 clients) */
     condition?: string;
     ticketIntervalMs?: number;
     ticketJitter?: number;

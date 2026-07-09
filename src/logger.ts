@@ -1,14 +1,21 @@
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, WriteStream } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import type { ActiveRules } from './types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(__dirname, '../logs');
 
 if (!existsSync(LOGS_DIR)) mkdirSync(LOGS_DIR, { recursive: true });
 
-// Fixed column order — unused fields are left empty per event type
+// ------------------------------------------------------------------ //
+//  Every event is written twice:                                       //
+//  - <sessionId>.csv   — fixed columns, for the task-metric analysis   //
+//  - <sessionId>.jsonl — one JSON object per line, carries all fields  //
+//    (transcripts, configs, …) and doubles as crash-recovery data      //
+// ------------------------------------------------------------------ //
+
+// Fixed column order — unused fields are left empty per event type.
+// robotCondition is appended last so older CSVs stay column-compatible.
 const COLUMNS = [
   'timestamp',
   'sessionId',
@@ -27,10 +34,15 @@ const COLUMNS = [
   'totalWrong',
   'accuracy',
   'sessionDurationMs',
+  'robotCondition',
 ] as const;
 
-type Column = (typeof COLUMNS)[number];
-type EventFields = Partial<Record<Column, string | number | boolean | ActiveRules | null>>;
+export interface LogMeta {
+  sessionId: string;
+  participantId: string;
+  taskCondition: string;
+  robotCondition: string;
+}
 
 function escape(val: unknown): string {
   if (val === undefined || val === null) return '';
@@ -41,53 +53,63 @@ function escape(val: unknown): string {
 }
 
 interface StreamEntry {
-  stream: WriteStream;
-  filePath: string;
+  csv: WriteStream;
+  jsonl: WriteStream;
 }
 
 const openStreams = new Map<string, StreamEntry>();
 
-function getStream(sessionId: string): StreamEntry {
+function getStreams(sessionId: string): StreamEntry {
   const existing = openStreams.get(sessionId);
   if (existing) return existing;
 
-  const filePath = join(LOGS_DIR, `${sessionId}.csv`);
-  const stream = createWriteStream(filePath, { flags: 'a' });
-  stream.write(COLUMNS.join(',') + '\n');
+  const csv = createWriteStream(join(LOGS_DIR, `${sessionId}.csv`), { flags: 'a' });
+  csv.write(COLUMNS.join(',') + '\n');
+  const jsonl = createWriteStream(join(LOGS_DIR, `${sessionId}.jsonl`), { flags: 'a' });
 
-  const entry: StreamEntry = { stream, filePath };
+  const entry: StreamEntry = { csv, jsonl };
   openStreams.set(sessionId, entry);
   return entry;
 }
 
 export function logEvent(
-  sessionId: string,
-  participantId: string,
-  condition: string,
+  meta: LogMeta,
   eventType: string,
-  fields: EventFields = {},
+  fields: Record<string, unknown> = {},
 ): void {
-  const { stream } = getStream(sessionId);
+  const { csv, jsonl } = getStreams(meta.sessionId);
+  const timestamp = new Date().toISOString();
+
+  // JSONL carries everything, including fields the CSV has no column for
+  jsonl.write(JSON.stringify({ timestamp, ...meta, eventType, ...fields }) + '\n');
+
   const row: Record<string, unknown> = {
-    timestamp: new Date().toISOString(),
-    sessionId,
-    participantId,
-    condition,
+    timestamp,
+    sessionId: meta.sessionId,
+    participantId: meta.participantId,
+    condition: meta.taskCondition,
+    robotCondition: meta.robotCondition,
     eventType,
     ...fields,
   };
-  stream.write(COLUMNS.map((col) => escape(row[col])).join(',') + '\n');
+  csv.write(COLUMNS.map((col) => escape(row[col])).join(',') + '\n');
 }
 
 export function closeSession(sessionId: string): void {
   const entry = openStreams.get(sessionId);
   if (!entry) return;
-  entry.stream.end();
+  entry.csv.end();
+  entry.jsonl.end();
   openStreams.delete(sessionId);
 }
 
 export function getExportPath(sessionId: string): string | null {
   const filePath = join(LOGS_DIR, `${sessionId}.csv`);
+  return existsSync(filePath) ? filePath : null;
+}
+
+export function getJsonlExportPath(sessionId: string): string | null {
+  const filePath = join(LOGS_DIR, `${sessionId}.jsonl`);
   return existsSync(filePath) ? filePath : null;
 }
 
