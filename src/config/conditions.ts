@@ -33,7 +33,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     voice: 'marin',
 
     smallTalkEnabled: true,
-    smallTalkIntervalSec: 9,
+    smallTalkIntervalSec: 90,
     smallTalkJitter: 0.3,
     smallTalkTopics: SMALL_TALK_TOPICS,
 

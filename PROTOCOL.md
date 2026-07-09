@@ -52,7 +52,7 @@ echo cancellation is confirmed reliable on device.
 
 | Type                | Payload                                   | Meaning |
 |---------------------|-------------------------------------------|---------|
-| `robot:voice:start` | —                                         | Start the provider voice session (manual/admin; later tied to session lifecycle). |
+| `robot:voice:start` | —                                         | Start the provider voice session manually (testing only). During a study session the voice session starts/stops automatically with `session:start`/`session:end`, configured by the session's robot condition — Unity never needs to send this. |
 | `robot:voice:stop`  | —                                         | Close the provider voice session. |
 | `robot:inject`      | `text`, `mode: verbatim\|prompt`, `priority?: normal\|high`, `ttlMs?: number` | Make the robot speak: `verbatim` says the line word for word, `prompt` opens a conversation about the given topic. Fires immediately when the robot is `idle`; otherwise queued. `high` priority jumps ahead of queued `normal` requests (announcements before small talk). A request whose `ttlMs` expires while queued is silently dropped. Ongoing speech and the participant are never interrupted. |
 | `avp:speech:done`   | —                                         | Unity finished playing the current utterance; completes the `speaking → idle` transition and releases the next queued speech request (re-broadcast to all clients). |

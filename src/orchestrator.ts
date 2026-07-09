@@ -1,7 +1,7 @@
 import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
 import { resolveRobotConfig } from './config/conditions';
-import { logEvent, closeSession, type LogMeta } from './logger';
+import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
 import type { Hub } from './hub';
 import type { DialogManager } from './robot/dialog-manager';
 import type {
@@ -47,7 +47,45 @@ export class Orchestrator {
   private activeSession: Session | null = null;
   private subsystems: Subsystem[] = [];
 
-  constructor(private hub: Hub, private dialog: DialogManager) {}
+  constructor(private hub: Hub, private dialog: DialogManager) {
+    this.wireRobotLogging();
+  }
+
+  /**
+   * Robot events (state transitions, transcripts, speech requests) go into
+   * the active session's JSONL log — the fixed-column CSV has no place for
+   * them. Manual voice tests outside a session are not logged.
+   */
+  private wireRobotLogging(): void {
+    const meta = (): LogMeta | null =>
+      this.activeSession ? this.logMeta(this.activeSession) : null;
+
+    this.dialog.onTransition = (from, to, reason) => {
+      const m = meta();
+      if (m) logRobotEvent(m, 'robot:state', { from, to, reason });
+    };
+
+    // Injected lines are skipped here: the 'fired' speech request below
+    // records the same content with structured fields.
+    this.dialog.onTranscript = (role, text) => {
+      const m = meta();
+      if (m && role !== 'injected') logRobotEvent(m, 'robot:transcript', { role, text });
+    };
+
+    this.dialog.onSpeechRequest = (request, disposition, waitedMs) => {
+      const m = meta();
+      if (m) {
+        logRobotEvent(m, 'robot:speech:request', {
+          source: request.source,
+          mode: request.mode,
+          priority: request.priority ?? 'normal',
+          disposition,
+          waitedMs,
+          text: request.text,
+        });
+      }
+    };
+  }
 
   register(subsystem: Subsystem): void {
     this.subsystems.push(subsystem);

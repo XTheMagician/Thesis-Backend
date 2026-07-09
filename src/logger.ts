@@ -95,6 +95,20 @@ export function logEvent(
   csv.write(COLUMNS.map((col) => escape(row[col])).join(',') + '\n');
 }
 
+/**
+ * JSONL-only variant for robot events (state transitions, transcripts,
+ * speech requests) — they have no CSV columns and would only produce
+ * near-empty rows in the fixed-column task log.
+ */
+export function logRobotEvent(
+  meta: LogMeta,
+  eventType: string,
+  fields: Record<string, unknown> = {},
+): void {
+  const { jsonl } = getStreams(meta.sessionId);
+  jsonl.write(JSON.stringify({ timestamp: new Date().toISOString(), ...meta, eventType, ...fields }) + '\n');
+}
+
 export function closeSession(sessionId: string): void {
   const entry = openStreams.get(sessionId);
   if (!entry) return;

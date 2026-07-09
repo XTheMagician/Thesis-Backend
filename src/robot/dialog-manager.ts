@@ -52,8 +52,14 @@ export class DialogManager {
   private utteranceStartedAt = 0;
   private playbackFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Hook for the orchestrator: called on every state transition (for JSONL logging). */
+  // Hooks for the orchestrator — robot events land in the session JSONL log
   onTransition?: (from: RobotState, to: RobotState, reason: string) => void;
+  onTranscript?: (role: 'user' | 'assistant' | 'injected', text: string) => void;
+  onSpeechRequest?: (
+    request: SpeechRequest,
+    disposition: 'fired' | 'queued' | 'dropped',
+    waitedMs?: number,
+  ) => void;
 
   constructor(private hub: Hub) {}
 
@@ -130,6 +136,7 @@ export class DialogManager {
 
     if (this.state === 'idle') {
       this.speak(request);
+      this.onSpeechRequest?.(request, 'fired');
       return;
     }
 
@@ -144,6 +151,7 @@ export class DialogManager {
       this.queue.push(entry);
     }
     console.log(`[Dialog] queued speech (${request.source}, ${request.priority ?? 'normal'}), queue length ${this.queue.length}`);
+    this.onSpeechRequest?.(request, 'queued');
   }
 
   /** Unity reports its playback buffer ran empty (avp:speech:done). */
@@ -246,11 +254,14 @@ export class DialogManager {
   private drainQueue(): void {
     while (this.queue.length > 0) {
       const next = this.queue.shift()!;
-      if (next.ttlMs != null && Date.now() - next.queuedAt > next.ttlMs) {
-        console.log(`[Dialog] dropped expired speech request (${next.source}, waited ${Date.now() - next.queuedAt}ms)`);
+      const waitedMs = Date.now() - next.queuedAt;
+      if (next.ttlMs != null && waitedMs > next.ttlMs) {
+        console.log(`[Dialog] dropped expired speech request (${next.source}, waited ${waitedMs}ms)`);
+        this.onSpeechRequest?.(next, 'dropped', waitedMs);
         continue;
       }
       this.speak(next);
+      this.onSpeechRequest?.(next, 'fired', waitedMs);
       return; // one at a time; the next drains after this utterance completes
     }
   }
@@ -287,6 +298,7 @@ export class DialogManager {
 
   private transcript(role: 'user' | 'assistant' | 'injected', text: string, final: boolean): void {
     this.hub.broadcast({ type: 'robot:transcript', role, text, final });
+    if (final) this.onTranscript?.(role, text);
   }
 
   private error(message: string): void {
