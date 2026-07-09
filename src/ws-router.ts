@@ -1,5 +1,6 @@
 import type { Hub } from './hub';
 import type { Orchestrator } from './orchestrator';
+import type { VoiceTestController } from './robot/voice-test';
 import type { Decision, InboundMessage, RobotCondition, RuleScheduleEntry, TaskCondition } from './types';
 
 export interface RouterContext {
@@ -7,6 +8,7 @@ export interface RouterContext {
   msg: InboundMessage;
   hub: Hub;
   orchestrator: Orchestrator;
+  voiceTest: VoiceTestController;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface RouterContext {
  * the orchestrator. Session state, logging and broadcasting live there.
  */
 export function handleMessage(ctx: RouterContext): void {
-  const { clientId, msg, hub, orchestrator } = ctx;
+  const { clientId, msg, hub, orchestrator, voiceTest } = ctx;
 
   switch (msg.type) {
     case 'session:start': {
@@ -86,6 +88,27 @@ export function handleMessage(ctx: RouterContext): void {
 
     case 'session:status': {
       hub.sendToClient(clientId, orchestrator.statusPayload());
+      break;
+    }
+
+    case 'test:voice:start': {
+      voiceTest.start();
+      break;
+    }
+
+    case 'test:voice:stop': {
+      voiceTest.stop();
+      break;
+    }
+
+    case 'test:voice:inject': {
+      const text = msg.text?.trim();
+      const mode = msg.mode === 'prompt' ? 'prompt' : 'verbatim';
+      if (!text) {
+        hub.sendToClient(clientId, { type: 'error', message: 'text is required for test:voice:inject.' });
+        return;
+      }
+      voiceTest.inject(text, mode);
       break;
     }
 

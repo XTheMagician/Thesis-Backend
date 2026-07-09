@@ -4,6 +4,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
+import { VoiceTestController } from './robot/voice-test';
 import { handleMessage } from './ws-router';
 import { getExportPath, getJsonlExportPath, getAllExportCsv } from './logger';
 
@@ -57,13 +58,14 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const hub = new Hub(wss);
 const orchestrator = new Orchestrator(hub);
+const voiceTest = new VoiceTestController(hub);
 
-hub.onMessage((clientId, msg) => handleMessage({ clientId, msg, hub, orchestrator }));
+hub.onMessage((clientId, msg) => handleMessage({ clientId, msg, hub, orchestrator, voiceTest }));
+hub.onUnityBinary((_clientId, pcm) => voiceTest.handleMicAudio(pcm));
 
 // Future robot subsystems (voice-provider session, dialog manager,
 // small-talk scheduler) register here:
 //   orchestrator.register(subsystem);
-//   hub.onUnityBinary((clientId, pcm) => providerSession.appendAudio(pcm));
 
 // ------------------------------------------------------------------ //
 //  Start                                                               //

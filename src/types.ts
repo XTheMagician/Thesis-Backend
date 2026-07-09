@@ -121,6 +121,20 @@ export interface AvpSpeechDoneMessage {
   type: 'avp:speech:done';
 }
 
+export interface TestVoiceStartMessage {
+  type: 'test:voice:start';
+}
+
+export interface TestVoiceStopMessage {
+  type: 'test:voice:stop';
+}
+
+export interface TestVoiceInjectMessage {
+  type: 'test:voice:inject';
+  text?: string;
+  mode?: string;
+}
+
 export type InboundMessage =
   | IdentifyMessage
   | SessionStartMessage
@@ -129,4 +143,7 @@ export type InboundMessage =
   | SessionPauseMessage
   | SessionResumeMessage
   | SessionStatusMessage
-  | AvpSpeechDoneMessage;
+  | AvpSpeechDoneMessage
+  | TestVoiceStartMessage
+  | TestVoiceStopMessage
+  | TestVoiceInjectMessage;
