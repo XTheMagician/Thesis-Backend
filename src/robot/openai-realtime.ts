@@ -49,7 +49,11 @@ export class OpenAiRealtimeSession {
           audio: {
             input: {
               format: { type: 'audio/pcm', rate: 24000 },
-              transcription: { model: 'whisper-1', language: 'de' },
+              // gpt-4o-mini-transcribe hallucinates far less on silence than
+              // whisper-1 (which infamously transcribes noise as German TV
+              // subtitle credits); near_field suits a close-talking headset/AVP
+              transcription: { model: 'gpt-4o-mini-transcribe', language: 'de' },
+              noise_reduction: { type: 'near_field' },
             },
             output: {
               format: { type: 'audio/pcm', rate: 24000 },

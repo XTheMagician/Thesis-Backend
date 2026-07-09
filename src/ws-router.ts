@@ -1,6 +1,6 @@
 import type { Hub } from './hub';
 import type { Orchestrator } from './orchestrator';
-import type { VoiceTestController } from './robot/voice-test';
+import type { DialogManager } from './robot/dialog-manager';
 import type { Decision, InboundMessage, RobotCondition, RuleScheduleEntry, TaskCondition } from './types';
 
 export interface RouterContext {
@@ -8,7 +8,7 @@ export interface RouterContext {
   msg: InboundMessage;
   hub: Hub;
   orchestrator: Orchestrator;
-  voiceTest: VoiceTestController;
+  dialog: DialogManager;
 }
 
 /**
@@ -16,7 +16,7 @@ export interface RouterContext {
  * the orchestrator. Session state, logging and broadcasting live there.
  */
 export function handleMessage(ctx: RouterContext): void {
-  const { clientId, msg, hub, orchestrator, voiceTest } = ctx;
+  const { clientId, msg, hub, orchestrator, dialog } = ctx;
 
   switch (msg.type) {
     case 'session:start': {
@@ -91,29 +91,34 @@ export function handleMessage(ctx: RouterContext): void {
       break;
     }
 
-    case 'test:voice:start': {
-      voiceTest.start();
+    case 'robot:voice:start': {
+      dialog.startVoice();
       break;
     }
 
-    case 'test:voice:stop': {
-      voiceTest.stop();
+    case 'robot:voice:stop': {
+      dialog.stopVoice();
       break;
     }
 
-    case 'test:voice:inject': {
+    case 'robot:inject': {
       const text = msg.text?.trim();
-      const mode = msg.mode === 'prompt' ? 'prompt' : 'verbatim';
       if (!text) {
-        hub.sendToClient(clientId, { type: 'error', message: 'text is required for test:voice:inject.' });
+        hub.sendToClient(clientId, { type: 'error', message: 'text is required for robot:inject.' });
         return;
       }
-      voiceTest.inject(text, mode);
+      dialog.requestSpeech({
+        text,
+        mode: msg.mode === 'prompt' ? 'prompt' : 'verbatim',
+        source: 'admin',
+        priority: msg.priority === 'high' ? 'high' : 'normal',
+        ttlMs: msg.ttlMs,
+      });
       break;
     }
 
     case 'avp:speech:done': {
-      console.log(`[AVP] Speech done — client ${clientId}`);
+      dialog.handlePlaybackDone();
       hub.broadcast({ type: 'avp:speech:done', fromClient: clientId });
       break;
     }

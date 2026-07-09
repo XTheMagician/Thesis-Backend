@@ -121,18 +121,23 @@ export interface AvpSpeechDoneMessage {
   type: 'avp:speech:done';
 }
 
-export interface TestVoiceStartMessage {
-  type: 'test:voice:start';
+/** Dialog/robot state, broadcast as `robot:state` for Unity animations and admin display. */
+export type RobotState = 'offline' | 'connecting' | 'idle' | 'listening' | 'thinking' | 'speaking';
+
+export interface RobotVoiceStartMessage {
+  type: 'robot:voice:start';
 }
 
-export interface TestVoiceStopMessage {
-  type: 'test:voice:stop';
+export interface RobotVoiceStopMessage {
+  type: 'robot:voice:stop';
 }
 
-export interface TestVoiceInjectMessage {
-  type: 'test:voice:inject';
+export interface RobotInjectMessage {
+  type: 'robot:inject';
   text?: string;
   mode?: string;
+  priority?: string;
+  ttlMs?: number;
 }
 
 export type InboundMessage =
@@ -144,6 +149,6 @@ export type InboundMessage =
   | SessionResumeMessage
   | SessionStatusMessage
   | AvpSpeechDoneMessage
-  | TestVoiceStartMessage
-  | TestVoiceStopMessage
-  | TestVoiceInjectMessage;
+  | RobotVoiceStartMessage
+  | RobotVoiceStopMessage
+  | RobotInjectMessage;
