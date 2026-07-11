@@ -117,6 +117,18 @@ export function closeSession(sessionId: string): void {
   openStreams.delete(sessionId);
 }
 
+/** All logged session IDs, newest first (IDs end in their start timestamp). */
+export function listLoggedSessions(): string[] {
+  const ids = new Set<string>();
+  for (const file of readdirSync(LOGS_DIR)) {
+    if (file.endsWith('.csv') || file.endsWith('.jsonl')) {
+      ids.add(file.replace(/\.(csv|jsonl)$/, ''));
+    }
+  }
+  const startedAt = (id: string) => Number(id.slice(id.lastIndexOf('-') + 1)) || 0;
+  return [...ids].sort((a, b) => startedAt(b) - startedAt(a));
+}
+
 export function getExportPath(sessionId: string): string | null {
   const filePath = join(LOGS_DIR, `${sessionId}.csv`);
   return existsSync(filePath) ? filePath : null;

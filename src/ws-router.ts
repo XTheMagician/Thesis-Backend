@@ -48,6 +48,7 @@ export function handleMessage(ctx: RouterContext): void {
         ticketJitter: msg.params?.ticketJitter,
         sessionTimerMs: msg.params?.sessionTimerMs,
         ruleSchedule: msg.params?.ruleSchedule as RuleScheduleEntry[] | undefined,
+        robotOverrides: msg.params?.robotOverrides,
       });
       if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
       break;

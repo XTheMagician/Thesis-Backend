@@ -18,24 +18,43 @@ export type TicketCategory = 'software' | 'shipping' | 'general' | 'accounting' 
  * Behaviour settings the robot derives from the robot condition.
  * Presets live in config/conditions.ts so every participant in the same
  * cell gets exactly the same treatment; the resolved config is logged
- * at session start. Scheduler parameters are deliberately NOT overridable
- * per session — the config file is the single source of truth.
+ * at session start. Voice and intervals accept per-session overrides
+ * from the admin panel (see RobotOverrides); everything else stays
+ * preset-only.
  */
 export interface RobotConfig {
   systemPrompt: string;
   responseLength: 'short' | 'long';
   voice: string;
+  /** Speaking-style prompt, appended to the system prompt at connect time */
+  voiceStyle: string;
 
   /** Small talk — the talkativeness manipulation */
   smallTalkEnabled: boolean;
+  /** Delay before the first small-talk impulse; the interval applies after that */
+  smallTalkFirstAfterSec: number;
   smallTalkIntervalSec: number;
   smallTalkJitter: number; // 0..1, interval randomization like ticketJitter
   smallTalkTopics: string[];
 
   /** Progress reports — task-relevant, active in both conditions */
   progressReportsEnabled: boolean;
+  progressReportFirstAfterSec: number;
   progressReportIntervalSec: number;
   progressReportJitter: number;
+}
+
+/**
+ * Per-session tweaks the admin panel may send with session:start.
+ * Anything omitted (or invalid) falls back to the condition preset.
+ */
+export interface RobotOverrides {
+  voice?: string;
+  voiceStyle?: string;
+  smallTalkFirstAfterSec?: number;
+  smallTalkIntervalSec?: number;
+  progressReportFirstAfterSec?: number;
+  progressReportIntervalSec?: number;
 }
 
 export interface Ticket {
@@ -103,6 +122,7 @@ export interface SessionStartMessage {
     ticketJitter?: number;
     sessionTimerMs?: number;
     ruleSchedule?: RuleScheduleEntry[];
+    robotOverrides?: RobotOverrides;
   };
 }
 

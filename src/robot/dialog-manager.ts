@@ -96,7 +96,9 @@ export class DialogManager {
     const session = new OpenAiRealtimeSession({
       apiKey,
       model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime',
-      instructions: robotConfig.systemPrompt,
+      // Speaking style is steered via instructions — the Realtime API has
+      // no separate voice-style field.
+      instructions: `${robotConfig.systemPrompt}\n\nSprechweise:\n${robotConfig.voiceStyle}`,
       voice: robotConfig.voice,
       // Ignore events from a superseded session (e.g. its close racing a restart)
       onEvent: (event) => {
@@ -241,9 +243,9 @@ export class DialogManager {
     if (!this.session?.connected) return;
 
     const instructions =
-      request.mode === 'verbatim'
-        ? `Sag wörtlich und ohne Ergänzungen oder Kommentare: "${request.text}"`
-        : `Initiiere von dir aus ein kurzes Gespräch mit dem Teilnehmer über folgendes Thema: ${request.text}. Halte dich an ein bis zwei Sätze.`;
+      request.mode === "verbatim"
+        ? `[SYSTEM: VERBATIM] ${request.text}"`
+        : `[SYSTEM: PROMPT] ${request.text}"`;
 
     this.transcript('injected', `[${request.source}/${request.mode}] ${request.text}`, true);
     this.session.createResponse(instructions);

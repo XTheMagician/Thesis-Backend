@@ -36,7 +36,7 @@ export class SpeechScheduler implements Subsystem {
   onSessionStart(session: Session): void {
     this.session = session;
     this.topicDeck = shuffle(session.robotConfig.smallTalkTopics);
-    this.scheduleAll();
+    this.scheduleAll(true);
   }
 
   onSessionPause(): void {
@@ -45,8 +45,9 @@ export class SpeechScheduler implements Subsystem {
 
   onSessionResume(): void {
     // Fresh intervals rather than remaining time — precise resumption
-    // doesn't matter for jittered conversational impulses
-    this.scheduleAll();
+    // doesn't matter for jittered conversational impulses. The first-after
+    // delay only applies to a fresh session, not after a pause.
+    this.scheduleAll(false);
   }
 
   onSessionEnd(): void {
@@ -58,16 +59,26 @@ export class SpeechScheduler implements Subsystem {
   //  Plans                                                                //
   // ------------------------------------------------------------------ //
 
-  private scheduleAll(): void {
+  private scheduleAll(initial: boolean): void {
     this.clearTimers();
     const config = this.session?.robotConfig;
     if (!config) return;
 
     if (config.smallTalkEnabled && config.smallTalkTopics.length > 0) {
-      this.scheduleRecurring(config.smallTalkIntervalSec, config.smallTalkJitter, () => this.fireSmallTalk());
+      this.scheduleRecurring(
+        initial ? config.smallTalkFirstAfterSec : config.smallTalkIntervalSec,
+        config.smallTalkIntervalSec,
+        config.smallTalkJitter,
+        () => this.fireSmallTalk(),
+      );
     }
     if (config.progressReportsEnabled) {
-      this.scheduleRecurring(config.progressReportIntervalSec, config.progressReportJitter, () => this.fireProgressReport());
+      this.scheduleRecurring(
+        initial ? config.progressReportFirstAfterSec : config.progressReportIntervalSec,
+        config.progressReportIntervalSec,
+        config.progressReportJitter,
+        () => this.fireProgressReport(),
+      );
     }
   }
 
@@ -113,23 +124,32 @@ export class SpeechScheduler implements Subsystem {
   //  Timer plumbing                                                       //
   // ------------------------------------------------------------------ //
 
-  /** Chained setTimeout with jitter: base ± (base * jitter), min 5s. */
-  private scheduleRecurring(intervalSec: number, jitter: number, fire: () => void): void {
-    const delayMs = () => {
+  /**
+   * Chained setTimeout: the first firing after exactly firstDelaySec (min 5s,
+   * the voice session needs a moment to connect), every following one after
+   * intervalSec ± (intervalSec * jitter).
+   */
+  private scheduleRecurring(
+    firstDelaySec: number,
+    intervalSec: number,
+    jitter: number,
+    fire: () => void,
+  ): void {
+    const jitteredMs = () => {
       const base = intervalSec * 1000;
       const offset = jitter > 0 ? (Math.random() * 2 - 1) * jitter * base : 0;
       return Math.max(5000, Math.round(base + offset));
     };
 
-    const chain = () => {
+    const chain = (delayMs: number) => {
       const timer = setTimeout(() => {
         if (!this.session || this.session.status !== 'running') return;
         fire();
-        chain();
-      }, delayMs());
+        chain(jitteredMs());
+      }, delayMs);
       this.timers.push(timer);
     };
-    chain();
+    chain(Math.max(5000, Math.round(firstDelaySec * 1000)));
   }
 
   /** Don't spam robot:error while the voice session is down or connecting. */

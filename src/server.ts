@@ -7,7 +7,7 @@ import { Orchestrator } from './orchestrator';
 import { DialogManager } from './robot/dialog-manager';
 import { SpeechScheduler } from './robot/scheduler';
 import { handleMessage } from './ws-router';
-import { getExportPath, getJsonlExportPath, getAllExportCsv } from './logger';
+import { getExportPath, getJsonlExportPath, getAllExportCsv, listLoggedSessions } from './logger';
 
 dotenv.config();
 
@@ -26,6 +26,13 @@ app.get('/health', (_req, res) => {
     clients: hub.clientCount,
     session: orchestrator.session?.id ?? null,
   });
+});
+
+// List all logged sessions (newest first) — the admin panel's export block.
+// CORS header because the panel fetches this from the Vite dev origin.
+app.get('/sessions', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.json({ sessions: listLoggedSessions() });
 });
 
 // Download a session's CSV log

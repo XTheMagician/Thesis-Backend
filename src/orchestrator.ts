@@ -7,6 +7,7 @@ import type { DialogManager } from './robot/dialog-manager';
 import type {
   Decision,
   RobotCondition,
+  RobotOverrides,
   RuleScheduleEntry,
   SortResult,
   TaskCondition,
@@ -34,6 +35,7 @@ export interface StartParams {
   ticketJitter?: number;
   sessionTimerMs?: number;
   ruleSchedule?: RuleScheduleEntry[];
+  robotOverrides?: RobotOverrides;
 }
 
 type Result<T = undefined> = { ok: true; value: T } | { ok: false; error: string };
@@ -104,7 +106,7 @@ export class Orchestrator {
       return { ok: false, error: 'A session is already running.' };
     }
 
-    const robotConfig = resolveRobotConfig(params.robotCondition);
+    const robotConfig = resolveRobotConfig(params.robotCondition, params.robotOverrides);
     const intervalMs =
       params.ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 

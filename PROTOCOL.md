@@ -61,8 +61,15 @@ echo cancellation is confirmed reliable on device.
 
 Client → server: `session:start` (`params: { participantId, taskCondition:
 easy|hard, robotCondition: talkative|quiet, ticketIntervalMs?, ticketJitter?,
-sessionTimerMs?, ruleSchedule? }`), `session:pause`, `session:resume`,
-`session:end`, `session:status`, `ticket:sort` (`ticketId`, `decision: ai|human`).
+sessionTimerMs?, ruleSchedule?, robotOverrides? }`), `session:pause`,
+`session:resume`, `session:end`, `session:status`, `ticket:sort` (`ticketId`,
+`decision: ai|human`).
+
+`robotOverrides` (`{ voice?, voiceStyle?, smallTalkFirstAfterSec?,
+smallTalkIntervalSec?, progressReportFirstAfterSec?,
+progressReportIntervalSec? }`) lets the admin panel tweak the robot's voice,
+speaking-style prompt and scheduler intervals per session; omitted or invalid
+fields fall back to the condition preset in `src/config/conditions.ts`.
 
 Server → all: `session:started`, `session:paused`, `session:resumed`,
 `session:ended`, `session:poolExhausted`, `ticket:queued`, `ticket:sorted`,
