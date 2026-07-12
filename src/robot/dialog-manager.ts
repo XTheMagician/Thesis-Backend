@@ -19,10 +19,12 @@ import type { RobotConfig, RobotState } from '../types';
 //  - Speech requests only fire in idle; otherwise they queue.          //
 //    priority 'high' jumps ahead of queued 'normal' requests           //
 //    (announcements before small talk); TTL expires stale requests.    //
-//  - Nothing ever preempts the participant or an ongoing utterance     //
-//    (a future `interrupt` flag could cancel ongoing robot speech      //
-//    via response.cancel + robot:speech:cancel if piloting shows       //
-//    announcements arrive too late).                                   //
+//  - Nothing ever preempts the participant or an ongoing utterance.    //
+//  - Uninterruptible requests (rule announcements) survive participant //
+//    barge-in: playback continues instead of being flushed, and a      //
+//    response the provider truncated mid-stream is re-queued so the    //
+//    announcement is spoken again in full. Barge-in attempts are       //
+//    reported via onInterruptionIgnored (participant error, logged).   //
 // ------------------------------------------------------------------ //
 
 export type SpeechSource = 'admin' | 'scheduler' | 'task-event';
@@ -33,6 +35,9 @@ export interface SpeechRequest {
   source: SpeechSource;
   priority?: 'normal' | 'high';
   ttlMs?: number;
+  /** Participant barge-in neither flushes playback nor kills this
+   *  utterance for good — a truncated response is spoken again in full. */
+  uninterruptible?: boolean;
 }
 
 interface QueuedSpeech extends SpeechRequest {
@@ -52,6 +57,14 @@ export class DialogManager {
   private utteranceStartedAt = 0;
   private playbackFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Uninterruptible utterance currently generating or playing; protection
+  // lasts until the robot returns to idle. protectedResponsePending is true
+  // only until the protected response itself finishes streaming — it tells
+  // a truncated announcement apart from a follow-up response cancelled
+  // later in the same playback window.
+  private protectedSpeech: SpeechRequest | null = null;
+  private protectedResponsePending = false;
+
   // Hooks for the orchestrator — robot events land in the session JSONL log
   onTransition?: (from: RobotState, to: RobotState, reason: string) => void;
   onTranscript?: (role: 'user' | 'assistant' | 'injected', text: string) => void;
@@ -60,6 +73,7 @@ export class DialogManager {
     disposition: 'fired' | 'queued' | 'dropped',
     waitedMs?: number,
   ) => void;
+  onInterruptionIgnored?: (request: SpeechRequest) => void;
 
   constructor(private hub: Hub) {}
 
@@ -197,6 +211,14 @@ export class DialogManager {
         break;
 
       case 'speechStarted':
+        // Barge-in against a protected utterance: keep playing, stay
+        // 'speaking'. The participant's audio still reaches the provider
+        // and the transcript, so the attempt is on record.
+        if (this.state === 'speaking' && this.protectedSpeech) {
+          console.log('[Dialog] barge-in ignored — uninterruptible announcement');
+          this.onInterruptionIgnored?.(this.protectedSpeech);
+          break;
+        }
         // Participant barge-in while the robot talks: flush Unity's buffer
         if (this.state === 'speaking') {
           this.clearPlaybackFallback();
@@ -206,10 +228,23 @@ export class DialogManager {
         break;
 
       case 'speechStopped':
+        // A protected utterance rode through the barge-in — stay 'speaking'
+        if (this.state === 'speaking' && this.protectedSpeech) break;
         this.transition('thinking', 'provider:speechStopped');
         break;
 
       case 'responseDone':
+        // A protected response the provider truncated (barge-in while audio
+        // was still streaming) is re-queued so the announcement is spoken
+        // again in full at the next idle moment.
+        if (this.protectedResponsePending && this.protectedSpeech && event.status !== 'completed') {
+          const retry = this.protectedSpeech;
+          this.protectedSpeech = null;
+          console.log(`[Dialog] protected speech ${event.status} mid-stream — re-queueing`);
+          this.requestSpeech(retry);
+        }
+        this.protectedResponsePending = false;
+
         if (this.state === 'speaking') {
           // Provider finished streaming; stay 'speaking' until Unity confirms
           // playback (or the fallback timer fires).
@@ -241,6 +276,9 @@ export class DialogManager {
 
   private speak(request: SpeechRequest): void {
     if (!this.session?.connected) return;
+
+    this.protectedSpeech = request.uninterruptible ? request : null;
+    this.protectedResponsePending = request.uninterruptible === true;
 
     // The nudge goes into the conversation as a system item, matching the
     // [SYSTEM: …] contract described in the session instructions. It must
@@ -296,6 +334,12 @@ export class DialogManager {
 
   private transition(to: RobotState, reason: string): void {
     if (this.state === to) return;
+    // Protection lasts exactly as long as the utterance: reaching idle or
+    // offline means nothing protected is generating or playing anymore.
+    if (to === 'idle' || to === 'offline') {
+      this.protectedSpeech = null;
+      this.protectedResponsePending = false;
+    }
     const from = this.state;
     this.state = to;
     console.log(`[Dialog] ${from} → ${to} (${reason})`);

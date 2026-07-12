@@ -87,6 +87,14 @@ export class Orchestrator {
         });
       }
     };
+
+    // Barge-in attempts against protected announcements: the robot keeps
+    // talking, but interrupting a rule announcement is a participant error
+    // worth its own line in the analysis.
+    this.dialog.onInterruptionIgnored = (request) => {
+      const m = meta();
+      if (m) logRobotEvent(m, 'robot:interruption:ignored', { source: request.source, text: request.text });
+    };
   }
 
   register(subsystem: Subsystem): void {
@@ -306,13 +314,15 @@ export class Orchestrator {
           robotSpeech: event.robotSpeech,
         });
         this.hub.broadcast({ type: 'rule:changed', rules: event.rules, robotSpeech: event.robotSpeech });
-        // Announcements jump the speech queue but never cut off ongoing speech
+        // Announcements jump the speech queue but never cut off ongoing
+        // speech — and once speaking, participant barge-in can't cut THEM off
         if (event.robotSpeech) {
           this.dialog.requestSpeech({
             text: event.robotSpeech,
             mode: 'verbatim',
             source: 'task-event',
             priority: 'high',
+            uninterruptible: true,
           });
         }
         break;

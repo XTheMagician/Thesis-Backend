@@ -15,7 +15,7 @@ export type RealtimeEvent =
   | { kind: 'userTranscript'; text: string }
   | { kind: 'speechStarted' }
   | { kind: 'speechStopped' }
-  | { kind: 'responseDone' }
+  | { kind: 'responseDone'; status: string }
   | { kind: 'error'; message: string }
   | { kind: 'closed' };
 
@@ -183,9 +183,12 @@ export class OpenAiRealtimeSession {
         emit({ kind: 'speechStopped' });
         break;
 
-      case 'response.done':
-        emit({ kind: 'responseDone' });
+      case 'response.done': {
+        // status 'cancelled' means the response was truncated (VAD barge-in)
+        const response = event.response as { status?: string } | undefined;
+        emit({ kind: 'responseDone', status: response?.status ?? 'completed' });
         break;
+      }
 
       case 'error': {
         const err = event.error as { message?: string } | undefined;
