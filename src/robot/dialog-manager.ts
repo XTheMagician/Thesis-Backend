@@ -242,13 +242,18 @@ export class DialogManager {
   private speak(request: SpeechRequest): void {
     if (!this.session?.connected) return;
 
-    const instructions =
-      request.mode === "verbatim"
-        ? `[SYSTEM: VERBATIM] ${request.text}"`
-        : `[SYSTEM: PROMPT] ${request.text}"`;
+    // The nudge goes into the conversation as a system item, matching the
+    // [SYSTEM: …] contract described in the session instructions. It must
+    // NOT be sent as response.create instructions — those replace the whole
+    // system prompt for that response instead of adding to it.
+    const nudge =
+      request.mode === 'verbatim'
+        ? `[SYSTEM: VERBATIM] ${request.text}`
+        : `[SYSTEM: PROMPT] ${request.text}`;
 
     this.transcript('injected', `[${request.source}/${request.mode}] ${request.text}`, true);
-    this.session.createResponse(instructions);
+    this.session.addSystemContext(nudge);
+    this.session.createResponse();
     // Response generation starts now; audio arrival moves us to 'speaking'
     this.transition('thinking', `speak:${request.source}`);
   }

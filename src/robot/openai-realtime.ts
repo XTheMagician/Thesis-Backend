@@ -54,6 +54,19 @@ export class OpenAiRealtimeSession {
               // subtitle credits); near_field suits a close-talking headset/AVP
               transcription: { model: 'gpt-4o-mini-transcribe', language: 'de' },
               noise_reduction: { type: 'near_field' },
+              // The default server_vad (threshold 0.5) trips on breathing and
+              // room noise and then answers an empty turn — the response is
+              // triggered by the VAD stop event, not by the transcript.
+              // semantic_vad classifies the audio content to decide whether a
+              // real user turn ended. create_response/interrupt_response are
+              // the defaults, spelled out because the dialog manager's
+              // barge-in handling relies on them.
+              turn_detection: {
+                type: 'semantic_vad',
+                eagerness: 'auto',
+                create_response: true,
+                interrupt_response: true,
+              },
             },
             output: {
               format: { type: 'audio/pcm', rate: 24000 },
@@ -99,12 +112,15 @@ export class OpenAiRealtimeSession {
   }
 
   /**
-   * Make the robot speak now. The instructions apply to this response only
-   * (they are not stored in the conversation); the resulting utterance is,
-   * so the participant can answer and the conversation continues naturally.
+   * Make the robot speak now. Deliberately sends no per-response
+   * instructions: `response.instructions` REPLACES the session instructions
+   * for that response (per API docs it "overrides the Session's
+   * configuration for this Response only") — the robot would lose its
+   * entire persona and the [SYSTEM: …] nudge contract. Callers insert
+   * their nudge into the conversation via addSystemContext() first.
    */
-  createResponse(instructions: string): void {
-    this.send({ type: 'response.create', response: { instructions } });
+  createResponse(): void {
+    this.send({ type: 'response.create' });
   }
 
   /**

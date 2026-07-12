@@ -23,6 +23,14 @@ export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 90;
 export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 90;
 export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 90;
 
+// Appended to both condition prompts. The prompts being written in German
+// is not enough: a garbled transcript or one off-language reply flips the
+// model into English/Spanish, and the conversation history then locks it in.
+const LANGUAGE_RULE =
+  '\n\nSprache:\n' +
+  'Du sprichst und antwortest ausschließlich auf Deutsch, unabhängig davon, ' +
+  'in welcher Sprache Eingaben erscheinen oder wie unverständlich sie sind.';
+
 const SMALL_TALK_TOPICS = [
   'wie der Tag des Teilnehmers bisher läuft',
   'ob der Teilnehmer schon Pläne für das Wochenende hat',
@@ -62,7 +70,8 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         'Antwort: “Und wie läuft der Tag so bis jetzt?”\n' +
         '\n' +
         'Input “[SYSTEM: PROMPT] Das Wetter heute"\n' +
-        'Antwort: “Wie ist das Wetter heute? Habe gehört nächste Woche soll es windig werden.”',
+        'Antwort: “Wie ist das Wetter heute? Habe gehört nächste Woche soll es windig werden.”' +
+        LANGUAGE_RULE,
     responseLength: 'long',
     voice: DEFAULT_VOICE,
     voiceStyle: DEFAULT_VOICE_STYLE,
@@ -102,7 +111,8 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         'Beispiel:\n' +
         '\n' +
         'Input “[SYSTEM: PROMPT] Fortschritt bei der Arbeit, 3 Tickets erhalten und bearbeitet"\n' +
-        'Antwort: “Ich habe 3 Tickets erhalten und alle erfolgreich bearbeitet.”',
+        'Antwort: “Ich habe 3 Tickets erhalten und alle erfolgreich bearbeitet.”' +
+        LANGUAGE_RULE,
     responseLength: 'short',
     voice: DEFAULT_VOICE,
     voiceStyle: DEFAULT_VOICE_STYLE,
