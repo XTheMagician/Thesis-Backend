@@ -18,10 +18,15 @@ import type { RobotCondition, RobotConfig, RobotOverrides } from '../types';
 // steered via instructions.
 export const DEFAULT_VOICE = 'alloy';
 export const DEFAULT_VOICE_STYLE = 'Speak like a gender neutral robot.';
-export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 90;
-export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 90;
-export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 90;
+export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 20;
+export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 60;
+export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 45;
 export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 90;
+
+// Always the very first small-talk impulse, delivered verbatim so every
+// participant hears the identical introduction.
+const SMALL_TALK_INTRO =
+  'Hallo, ich glaube wir wurden uns noch nicht vorgestellt. Mein Name ist C3PO, und wie heißt du?';
 
 // Appended to both condition prompts. The prompts being written in German
 // is not enough: a garbled transcript or one off-language reply flips the
@@ -38,6 +43,16 @@ const SMALL_TALK_TOPICS = [
   'was der Teilnehmer gerne in seiner Freizeit macht',
   'ob der Teilnehmer lieber Kaffee oder Tee trinkt',
   'welche Musik der Teilnehmer gerne hört',
+  'ob der Teilnehmer ein Morgenmensch oder ein Abendmensch ist',
+  'welche Serien oder Filme der Teilnehmer zuletzt geschaut hat',
+  'ob der Teilnehmer gerne kocht und was sein Lieblingsessen ist',
+  'ob der Teilnehmer Haustiere hat oder gerne welche hätte',
+  'wohin der Teilnehmer gerne einmal reisen würde',
+  'ob der Teilnehmer Sport macht oder einem Verein angehört',
+  'welche Jahreszeit der Teilnehmer am liebsten mag',
+  'ob der Teilnehmer gerade ein gutes Buch liest oder einen Podcast hört',
+  'was der Teilnehmer studiert oder beruflich macht',
+  'ob der Teilnehmer schon einmal mit einem Roboter zusammengearbeitet hat',
 ];
 
 export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
@@ -77,6 +92,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     voiceStyle: DEFAULT_VOICE_STYLE,
 
     smallTalkEnabled: true,
+    smallTalkIntro: SMALL_TALK_INTRO,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.3,
@@ -118,6 +134,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     voiceStyle: DEFAULT_VOICE_STYLE,
 
     smallTalkEnabled: false,
+    smallTalkIntro: SMALL_TALK_INTRO,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.3,

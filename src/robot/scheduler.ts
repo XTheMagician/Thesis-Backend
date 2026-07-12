@@ -9,7 +9,8 @@ import type { Session } from '../task/session';
 //  to make the robot speak. Two independent plans, parameterized per   //
 //  condition in config/conditions.ts:                                  //
 //                                                                      //
-//  - small talk (talkative condition only): opens a conversation       //
+//  - small talk (talkative condition only): the first impulse is a     //
+//    verbatim self-introduction, every later one opens a conversation  //
 //    about the next topic from a per-session shuffled deck — each      //
 //    topic is used at most once per session                            //
 //  - progress reports (both conditions): the robot-as-AI-agent         //
@@ -30,12 +31,15 @@ export class SpeechScheduler implements Subsystem {
   private timers: ReturnType<typeof setTimeout>[] = [];
   // Shuffled per session and drawn down — no topic is ever offered twice
   private topicDeck: string[] = [];
+  // The verbatim self-introduction goes out on the first small-talk slot
+  private introPending = false;
 
   constructor(private dialog: DialogManager) {}
 
   onSessionStart(session: Session): void {
     this.session = session;
     this.topicDeck = shuffle(session.robotConfig.smallTalkTopics);
+    this.introPending = session.robotConfig.smallTalkIntro.length > 0;
     this.scheduleAll(true);
   }
 
@@ -64,7 +68,7 @@ export class SpeechScheduler implements Subsystem {
     const config = this.session?.robotConfig;
     if (!config) return;
 
-    if (config.smallTalkEnabled && config.smallTalkTopics.length > 0) {
+    if (config.smallTalkEnabled && (this.introPending || config.smallTalkTopics.length > 0)) {
       this.scheduleRecurring(
         initial ? config.smallTalkFirstAfterSec : config.smallTalkIntervalSec,
         config.smallTalkIntervalSec,
@@ -84,6 +88,20 @@ export class SpeechScheduler implements Subsystem {
 
   private fireSmallTalk(): void {
     if (!this.session || !this.robotAvailable()) return;
+
+    // The introduction must be word-for-word identical across participants,
+    // so it bypasses the topic deck and goes out as a verbatim nudge.
+    if (this.introPending) {
+      this.introPending = false;
+      this.dialog.requestSpeech({
+        text: this.session.robotConfig.smallTalkIntro,
+        mode: 'verbatim',
+        source: 'scheduler',
+        priority: 'normal',
+        ttlMs: SMALL_TALK_TTL_MS,
+      });
+      return;
+    }
 
     const topic = this.topicDeck.shift();
     if (!topic) {
@@ -107,12 +125,13 @@ export class SpeechScheduler implements Subsystem {
     // The robot is the "KI-Agent" of the task fiction: report on the
     // tickets the participant has assigned to it so far
     const assigned = session.results.filter((r) => r.decision === 'ai').length;
+    const correctlyAssigned = session.results.filter((r) => r.decision === 'ai' && r.correct).length;
     if (assigned === 0) return; // nothing to report yet — skip this round
 
     this.dialog.requestSpeech({
       text:
         `Berichte dem Teilnehmer unaufgefordert und kurz über deinen Arbeitsfortschritt: ` +
-        `dir wurden bisher ${assigned} Tickets zugewiesen und du hast sie erfolgreich bearbeitet.`,
+        `dir wurden bisher ${assigned} Tickets zugewiesen und du hast ${correctlyAssigned} erfolgreich bearbeitet.`,
       mode: 'prompt',
       source: 'scheduler',
       priority: 'normal',

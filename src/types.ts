@@ -31,6 +31,8 @@ export interface RobotConfig {
 
   /** Small talk — the talkativeness manipulation */
   smallTalkEnabled: boolean;
+  /** Spoken verbatim as the very first small-talk impulse, before any topic */
+  smallTalkIntro: string;
   /** Delay before the first small-talk impulse; the interval applies after that */
   smallTalkFirstAfterSec: number;
   smallTalkIntervalSec: number;
