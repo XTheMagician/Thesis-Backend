@@ -7,7 +7,14 @@ import { Orchestrator } from './orchestrator';
 import { DialogManager } from './robot/dialog-manager';
 import { SpeechScheduler } from './robot/scheduler';
 import { handleMessage } from './ws-router';
-import { getExportPath, getJsonlExportPath, getAllExportCsv, listLoggedSessions } from './logger';
+import {
+  getExportPath,
+  getJsonlExportPath,
+  getAllExportCsv,
+  listLoggedSessions,
+  getSummaryExportPath,
+  deleteSessionSummary,
+} from './logger';
 
 dotenv.config();
 
@@ -58,6 +65,29 @@ app.get('/export-jsonl/:sessionId', (req, res) => {
   res.download(filePath);
 });
 
+// Download the shortform summary — one line per session, for stats software
+app.get('/export-summary', (_req, res) => {
+  const filePath = getSummaryExportPath();
+  if (!filePath) return void res.status(404).json({ error: 'No session summaries found.' });
+  res.download(filePath, 'summary.csv');
+});
+
+// Discard a botched trial's row from the summary (its CSV/JSONL logs are
+// kept). Needs CORS since the admin panel calls this via fetch, not a
+// plain navigation like the downloads above.
+app.options('/export-summary/:sessionId', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'DELETE');
+  res.sendStatus(204);
+});
+
+app.delete('/export-summary/:sessionId', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const removed = deleteSessionSummary(req.params.sessionId);
+  if (!removed) return void res.status(404).json({ error: 'Session not found in summary.' });
+  res.json({ ok: true });
+});
+
 const httpServer = createServer(app);
 
 // ------------------------------------------------------------------ //
@@ -88,4 +118,5 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] Export CSV: http://localhost:${PORT}/export/<sessionId>`);
   console.log(`[Server] Export all CSV: http://localhost:${PORT}/export-all`);
   console.log(`[Server] Export JSONL: http://localhost:${PORT}/export-jsonl/<sessionId>`);
+  console.log(`[Server] Export summary: http://localhost:${PORT}/export-summary`);
 });

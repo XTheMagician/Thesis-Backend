@@ -1,7 +1,7 @@
 import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
 import { resolveRobotConfig } from './config/conditions';
-import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
+import { logEvent, logRobotEvent, logSessionSummary, closeSession, type LogMeta } from './logger';
 import type { Hub } from './hub';
 import type { DialogManager } from './robot/dialog-manager';
 import type {
@@ -207,6 +207,11 @@ export class Orchestrator {
       totalWrong: session.stats.wrong,
       accuracy,
       sessionDurationMs: session.duration ?? undefined,
+    });
+
+    logSessionSummary(this.logMeta(session), {
+      totalCorrect: session.stats.correct,
+      totalWrong: session.stats.wrong,
     });
 
     closeSession(session.id);
