@@ -22,6 +22,7 @@ export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 20;
 export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 60;
 export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 45;
 export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 90;
+export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
 // Always the very first small-talk impulse, delivered verbatim so every
 // participant hears the identical introduction.
@@ -102,6 +103,8 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
     progressReportIntervalSec: DEFAULT_PROGRESS_REPORT_INTERVAL_SEC,
     progressReportJitter: 0.2,
+
+    impulseQuietSec: DEFAULT_IMPULSE_QUIET_SEC,
   },
   quiet: {
     systemPrompt:
@@ -144,13 +147,16 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
     progressReportIntervalSec: DEFAULT_PROGRESS_REPORT_INTERVAL_SEC,
     progressReportJitter: 0.2,
+
+    impulseQuietSec: DEFAULT_IMPULSE_QUIET_SEC,
   },
 };
 
 /**
  * Resolve the preset for a condition and layer optional per-session
  * overrides (admin panel) on top. Invalid values — empty strings,
- * non-finite or sub-5-second intervals — fall back to the preset.
+ * non-finite or sub-5-second intervals, negative quiet times — fall back
+ * to the preset.
  */
 export function resolveRobotConfig(condition: RobotCondition, overrides?: RobotOverrides): RobotConfig {
   const base = ROBOT_CONFIGS[condition];
@@ -166,6 +172,7 @@ export function resolveRobotConfig(condition: RobotCondition, overrides?: RobotO
       cleanIntervalSec(overrides.progressReportFirstAfterSec) ?? base.progressReportFirstAfterSec,
     progressReportIntervalSec:
       cleanIntervalSec(overrides.progressReportIntervalSec) ?? base.progressReportIntervalSec,
+    impulseQuietSec: cleanQuietSec(overrides.impulseQuietSec) ?? base.impulseQuietSec,
   };
 }
 
@@ -178,4 +185,10 @@ function cleanString(val: unknown): string | undefined {
 function cleanIntervalSec(val: unknown): number | undefined {
   if (typeof val !== 'number' || !Number.isFinite(val)) return undefined;
   return val >= 5 ? Math.round(val) : undefined;
+}
+
+// 0 is valid: impulses then only wait for the robot to be idle
+function cleanQuietSec(val: unknown): number | undefined {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return undefined;
+  return val >= 0 ? Math.round(val) : undefined;
 }

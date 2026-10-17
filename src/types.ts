@@ -44,6 +44,10 @@ export interface RobotConfig {
   progressReportFirstAfterSec: number;
   progressReportIntervalSec: number;
   progressReportJitter: number;
+
+  /** Both plans: a due impulse waits until the conversation (participant
+   *  and robot) has been silent this long, so it never cuts into a dialog */
+  impulseQuietSec: number;
 }
 
 /**
@@ -57,6 +61,7 @@ export interface RobotOverrides {
   smallTalkIntervalSec?: number;
   progressReportFirstAfterSec?: number;
   progressReportIntervalSec?: number;
+  impulseQuietSec?: number;
 }
 
 export interface Ticket {

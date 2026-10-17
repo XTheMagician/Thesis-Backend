@@ -51,6 +51,9 @@ export class DialogManager {
   private session: OpenAiRealtimeSession | null = null;
   private state: RobotState = 'offline';
   private queue: QueuedSpeech[] = [];
+  // When the robot last became idle — anything non-idle (participant
+  // speaking, robot thinking/speaking) counts as an ongoing conversation
+  private idleSince = Date.now();
 
   // Current utterance tracking (for the playback fallback timer)
   private utteranceBytes = 0;
@@ -79,6 +82,11 @@ export class DialogManager {
 
   get currentState(): RobotState {
     return this.state;
+  }
+
+  /** How long the conversation has been silent; 0 while anyone is talking. */
+  get quietForMs(): number {
+    return this.state === 'idle' ? Date.now() - this.idleSince : 0;
   }
 
   // ------------------------------------------------------------------ //
@@ -342,6 +350,7 @@ export class DialogManager {
     }
     const from = this.state;
     this.state = to;
+    if (to === 'idle') this.idleSince = Date.now();
     console.log(`[Dialog] ${from} → ${to} (${reason})`);
     this.onTransition?.(from, to, reason);
     this.hub.broadcast({ type: 'robot:state', state: to });

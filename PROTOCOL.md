@@ -67,9 +67,13 @@ sessionTimerMs?, ruleSchedule?, robotOverrides? }`), `session:pause`,
 
 `robotOverrides` (`{ voice?, voiceStyle?, smallTalkFirstAfterSec?,
 smallTalkIntervalSec?, progressReportFirstAfterSec?,
-progressReportIntervalSec? }`) lets the admin panel tweak the robot's voice,
-speaking-style prompt and scheduler intervals per session; omitted or invalid
-fields fall back to the condition preset in `src/config/conditions.ts`.
+progressReportIntervalSec?, impulseQuietSec? }`) lets the admin panel tweak
+the robot's voice, speaking-style prompt and scheduler intervals per session;
+omitted or invalid fields fall back to the condition preset in
+`src/config/conditions.ts`. `impulseQuietSec` is the silence (nobody speaking,
+robot idle) a due small-talk or progress-report impulse waits for before it
+fires, so scheduled impulses never cut into an ongoing conversation; `0` only
+waits for the robot to be idle.
 
 Server → all: `session:started`, `session:paused`, `session:resumed`,
 `session:ended`, `session:poolExhausted`, `ticket:queued`, `ticket:sorted`,

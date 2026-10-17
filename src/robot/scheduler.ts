@@ -17,12 +17,19 @@ import type { Session } from '../task/session';
 //    reports on the tickets assigned to it, using live session stats   //
 //    read at fire time so the numbers are always current               //
 //                                                                      //
-//  Collisions are the dialog manager's job: requests queue when the    //
-//  robot is busy, and the TTL silently drops impulses that got stale.  //
+//  Impulses never cut into an ongoing conversation: a due impulse      //
+//  waits until the conversation has been silent for impulseQuietSec    //
+//  (nobody speaking, robot idle). Only then is a topic drawn and the   //
+//  request sent — so the dialog manager fires it immediately instead   //
+//  of queueing it for the end of the robot's current turn, which is    //
+//  exactly when the participant would answer. The next interval        //
+//  counts from the actual firing.                                      //
 // ------------------------------------------------------------------ //
 
 const SMALL_TALK_TTL_MS = 30_000;
 const PROGRESS_TTL_MS = 45_000;
+// Re-check cadence while a due impulse waits for the conversation to end
+const QUIET_POLL_MS = 1000;
 
 export class SpeechScheduler implements Subsystem {
   readonly name = 'speech-scheduler';
@@ -87,7 +94,7 @@ export class SpeechScheduler implements Subsystem {
   }
 
   private fireSmallTalk(): void {
-    if (!this.session || !this.robotAvailable()) return;
+    if (!this.session) return;
 
     // The introduction must be word-for-word identical across participants,
     // so it bypasses the topic deck and goes out as a verbatim nudge.
@@ -120,7 +127,7 @@ export class SpeechScheduler implements Subsystem {
 
   private fireProgressReport(): void {
     const session = this.session;
-    if (!session || !this.robotAvailable()) return;
+    if (!session) return;
 
     // The robot is the "KI-Agent" of the task fiction: report on the
     // tickets the participant has assigned to it so far
@@ -144,9 +151,11 @@ export class SpeechScheduler implements Subsystem {
   // ------------------------------------------------------------------ //
 
   /**
-   * Chained setTimeout: the first firing after exactly firstDelaySec (min 5s,
-   * the voice session needs a moment to connect), every following one after
-   * intervalSec ± (intervalSec * jitter).
+   * Chained setTimeout: the first impulse is due after exactly firstDelaySec
+   * (min 5s, the voice session needs a moment to connect), every following
+   * one intervalSec ± (intervalSec * jitter) after the previous firing.
+   * A due impulse fires only once the conversation has been quiet long
+   * enough; until then it is re-checked, not dropped.
    */
   private scheduleRecurring(
     firstDelaySec: number,
@@ -160,21 +169,44 @@ export class SpeechScheduler implements Subsystem {
       return Math.max(5000, Math.round(base + offset));
     };
 
-    const chain = (delayMs: number) => {
-      const timer = setTimeout(() => {
-        if (!this.session || this.session.status !== 'running') return;
-        fire();
-        chain(jitteredMs());
-      }, delayMs);
-      this.timers.push(timer);
+    const attempt = (dueAt: number) => {
+      if (!this.session || this.session.status !== 'running') return;
+      const waitMs = this.quietWaitMs();
+      if (waitMs > 0) {
+        if (dueAt === 0) dueAt = Date.now();
+        this.after(Math.max(QUIET_POLL_MS, waitMs), () => attempt(dueAt));
+        return;
+      }
+      if (dueAt > 0) {
+        console.log(`[Scheduler] impulse deferred ${Date.now() - dueAt}ms until the conversation went quiet`);
+      }
+      fire();
+      this.after(jitteredMs(), () => attempt(0));
     };
-    chain(Math.max(5000, Math.round(firstDelaySec * 1000)));
+    this.after(Math.max(5000, Math.round(firstDelaySec * 1000)), () => attempt(0));
   }
 
-  /** Don't spam robot:error while the voice session is down or connecting. */
-  private robotAvailable(): boolean {
+  /**
+   * Remaining wait before an impulse may fire: the conversation must have
+   * been silent for impulseQuietSec. While the voice session is down or
+   * connecting the robot can't speak at all (and would spam robot:error),
+   * so the impulse simply keeps waiting.
+   */
+  private quietWaitMs(): number {
     const state = this.dialog.currentState;
-    return state !== 'offline' && state !== 'connecting';
+    if (state === 'offline' || state === 'connecting') return QUIET_POLL_MS;
+    const requiredMs = (this.session?.robotConfig.impulseQuietSec ?? 0) * 1000;
+    if (state !== 'idle') return Math.max(QUIET_POLL_MS, requiredMs);
+    return requiredMs - this.dialog.quietForMs;
+  }
+
+  /** setTimeout that forgets its handle once fired, so polling doesn't pile up. */
+  private after(delayMs: number, fn: () => void): void {
+    const timer = setTimeout(() => {
+      this.timers = this.timers.filter((t) => t !== timer);
+      fn();
+    }, delayMs);
+    this.timers.push(timer);
   }
 
   private clearTimers(): void {
