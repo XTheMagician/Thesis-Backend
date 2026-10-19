@@ -20,7 +20,9 @@ export function handleMessage(ctx: RouterContext): void {
 
   switch (msg.type) {
     case 'session:start': {
-      const participantId = msg.params?.participantId;
+      const demo = msg.params?.demo === true;
+      // Demo runs are not logged, so they need no participant
+      const participantId = msg.params?.participantId?.trim() || (demo ? 'DEMO' : undefined);
       // `condition` is the legacy alias used by pre-2×2 clients
       const taskCondition = msg.params?.taskCondition ?? msg.params?.condition;
       const robotCondition = msg.params?.robotCondition ?? 'quiet';
@@ -28,7 +30,7 @@ export function handleMessage(ctx: RouterContext): void {
       if (!participantId || !isTaskCondition(taskCondition)) {
         hub.sendToClient(clientId, {
           type: 'error',
-          message: 'params.participantId and params.taskCondition ("easy"|"hard") are required.',
+          message: 'params.participantId (except for demo runs) and params.taskCondition ("easy"|"hard") are required.',
         });
         return;
       }
@@ -49,7 +51,14 @@ export function handleMessage(ctx: RouterContext): void {
         sessionTimerMs: msg.params?.sessionTimerMs,
         ruleSchedule: msg.params?.ruleSchedule as RuleScheduleEntry[] | undefined,
         robotOverrides: msg.params?.robotOverrides,
+        demo,
       });
+      if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
+      break;
+    }
+
+    case 'session:begin': {
+      const result = orchestrator.beginTask('admin');
       if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
       break;
     }
@@ -115,6 +124,11 @@ export function handleMessage(ctx: RouterContext): void {
         priority: msg.priority === 'high' ? 'high' : 'normal',
         ttlMs: msg.ttlMs,
       });
+      break;
+    }
+
+    case 'client:lifecycle': {
+      hub.noteLifecycle(clientId, msg.event ?? 'unknown');
       break;
     }
 

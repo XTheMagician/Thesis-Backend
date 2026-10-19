@@ -6,16 +6,19 @@ import type { Session } from '../task/session';
 //  Speech scheduler                                                    //
 //                                                                      //
 //  Orchestrator subsystem that periodically asks the dialog manager    //
-//  to make the robot speak. Two independent plans, parameterized per   //
-//  condition in config/conditions.ts:                                  //
+//  to make the robot speak. Both plans start with the task (after the  //
+//  briefing, which already covers the introduction) and are            //
+//  parameterized per condition in config/conditions.ts:                //
 //                                                                      //
-//  - small talk (talkative condition only): the first impulse is a     //
-//    verbatim self-introduction, every later one opens a conversation  //
-//    about the next topic from a per-session shuffled deck — each      //
-//    topic is used at most once per session                            //
+//  - small talk (talkative condition only): each impulse opens a       //
+//    conversation about the next topic from a per-session shuffled     //
+//    deck — each topic is used at most once per session                //
 //  - progress reports (both conditions): the robot-as-AI-agent         //
 //    reports on the tickets assigned to it, using live session stats   //
-//    read at fire time so the numbers are always current               //
+//    read at fire time so the numbers are always current. Spoken       //
+//    verbatim as one fixed sentence — identical wording for everyone,  //
+//    and a single sentence is what the provider's audio reliably       //
+//    delivers in full                                                  //
 //                                                                      //
 //  Impulses never cut into an ongoing conversation: a due impulse      //
 //  waits until the conversation has been silent for impulseQuietSec    //
@@ -38,15 +41,17 @@ export class SpeechScheduler implements Subsystem {
   private timers: ReturnType<typeof setTimeout>[] = [];
   // Shuffled per session and drawn down — no topic is ever offered twice
   private topicDeck: string[] = [];
-  // The verbatim self-introduction goes out on the first small-talk slot
-  private introPending = false;
 
   constructor(private dialog: DialogManager) {}
 
   onSessionStart(session: Session): void {
+    // Demo runs have no voice session — nothing to schedule
+    if (session.demo) return;
     this.session = session;
     this.topicDeck = shuffle(session.robotConfig.smallTalkTopics);
-    this.introPending = session.robotConfig.smallTalkIntro.length > 0;
+  }
+
+  onTaskStart(): void {
     this.scheduleAll(true);
   }
 
@@ -75,7 +80,7 @@ export class SpeechScheduler implements Subsystem {
     const config = this.session?.robotConfig;
     if (!config) return;
 
-    if (config.smallTalkEnabled && (this.introPending || config.smallTalkTopics.length > 0)) {
+    if (config.smallTalkEnabled && config.smallTalkTopics.length > 0) {
       this.scheduleRecurring(
         initial ? config.smallTalkFirstAfterSec : config.smallTalkIntervalSec,
         config.smallTalkIntervalSec,
@@ -95,20 +100,6 @@ export class SpeechScheduler implements Subsystem {
 
   private fireSmallTalk(): void {
     if (!this.session) return;
-
-    // The introduction must be word-for-word identical across participants,
-    // so it bypasses the topic deck and goes out as a verbatim nudge.
-    if (this.introPending) {
-      this.introPending = false;
-      this.dialog.requestSpeech({
-        text: this.session.robotConfig.smallTalkIntro,
-        mode: 'verbatim',
-        source: 'scheduler',
-        priority: 'normal',
-        ttlMs: SMALL_TALK_TTL_MS,
-      });
-      return;
-    }
 
     const topic = this.topicDeck.shift();
     if (!topic) {
@@ -136,10 +127,8 @@ export class SpeechScheduler implements Subsystem {
     if (assigned === 0) return; // nothing to report yet — skip this round
 
     this.dialog.requestSpeech({
-      text:
-        `Berichte dem Teilnehmer unaufgefordert und kurz über deinen Arbeitsfortschritt: ` +
-        `dir wurden bisher ${assigned} Tickets zugewiesen und du hast ${correctlyAssigned} erfolgreich bearbeitet.`,
-      mode: 'prompt',
+      text: progressReport(assigned, correctlyAssigned),
+      mode: 'verbatim',
       source: 'scheduler',
       priority: 'normal',
       ttlMs: PROGRESS_TTL_MS,
@@ -213,6 +202,12 @@ export class SpeechScheduler implements Subsystem {
     this.timers.forEach(clearTimeout);
     this.timers = [];
   }
+}
+
+/** One sentence, so the dialog manager speaks it as a single piece. */
+function progressReport(assigned: number, done: number): string {
+  const tickets = assigned === 1 ? 'wurde bisher 1 Ticket' : `wurden bisher ${assigned} Tickets`;
+  return `Mir ${tickets} zugewiesen, davon habe ich ${done} erfolgreich bearbeitet.`;
 }
 
 /** Fisher–Yates, on a copy. */

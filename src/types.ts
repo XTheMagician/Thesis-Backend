@@ -29,10 +29,17 @@ export interface RobotConfig {
   /** Speaking-style prompt, appended to the system prompt at connect time */
   voiceStyle: string;
 
+  /** Briefing — spoken verbatim when the voice session is up; the rest of
+   *  the introduction is scripted in the system prompt. Tickets and timers
+   *  only start once the participant confirms they are ready. */
+  briefingOpener: string;
+  /** Spoken verbatim after the participant's first reply; empty = none */
+  briefingExplanation: string;
+  /** Spoken verbatim once the briefing ends, before the first ticket */
+  briefingStartLine: string;
+
   /** Small talk — the talkativeness manipulation */
   smallTalkEnabled: boolean;
-  /** Spoken verbatim as the very first small-talk impulse, before any topic */
-  smallTalkIntro: string;
   /** Delay before the first small-talk impulse; the interval applies after that */
   smallTalkFirstAfterSec: number;
   smallTalkIntervalSec: number;
@@ -106,6 +113,8 @@ export interface SortResult {
 export interface WsClient {
   ws: WebSocket;
   type: ClientType;
+  /** Consecutive heartbeat pings without a pong */
+  missedPings: number;
 }
 
 // ------------------------------------------------------------------ //
@@ -130,7 +139,14 @@ export interface SessionStartMessage {
     sessionTimerMs?: number;
     ruleSchedule?: RuleScheduleEntry[];
     robotOverrides?: RobotOverrides;
+    /** Demo run: no briefing and no voice session, the task starts at once */
+    demo?: boolean;
   };
+}
+
+/** Admin override: end the briefing and start the task right away. */
+export interface SessionBeginMessage {
+  type: 'session:begin';
 }
 
 export interface TicketSortMessage {
@@ -153,6 +169,12 @@ export interface SessionResumeMessage {
 
 export interface SessionStatusMessage {
   type: 'session:status';
+}
+
+/** Unity app lifecycle: sent right before visionOS pauses the app, and on focus changes */
+export interface ClientLifecycleMessage {
+  type: 'client:lifecycle';
+  event?: string;
 }
 
 export interface AvpSpeechDoneMessage {
@@ -181,12 +203,14 @@ export interface RobotInjectMessage {
 export type InboundMessage =
   | IdentifyMessage
   | SessionStartMessage
+  | SessionBeginMessage
   | TicketSortMessage
   | SessionEndMessage
   | SessionPauseMessage
   | SessionResumeMessage
   | SessionStatusMessage
   | AvpSpeechDoneMessage
+  | ClientLifecycleMessage
   | RobotVoiceStartMessage
   | RobotVoiceStopMessage
   | RobotInjectMessage;

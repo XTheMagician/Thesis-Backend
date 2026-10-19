@@ -40,6 +40,7 @@ export interface SessionParams {
   sessionTimerMs?: number;
   ticketPool: Ticket[];
   ruleSchedule?: RuleScheduleEntry[];
+  demo?: boolean;
   onEvent: (event: SessionEvent) => void;
 }
 
@@ -52,9 +53,14 @@ export class Session {
   readonly ticketIntervalMs: number;
   readonly ticketJitter: number;
   readonly sessionTimerMs: number | null;
+  /** Demo run: no briefing, no voice, nothing logged */
+  readonly demo: boolean;
 
-  status: 'running' | 'paused' | 'ended';
-  readonly startedAt: number;
+  /** 'briefing' until begin(): the robot explains the task, nothing is dispatched yet */
+  status: 'briefing' | 'running' | 'paused' | 'ended';
+  readonly createdAt: number;
+  /** When the task itself started (begin()); all task timing counts from here */
+  startedAt: number;
   endedAt: number | null = null;
   duration: number | null = null;
 
@@ -91,17 +97,24 @@ export class Session {
     this.sessionTimerMs = params.sessionTimerMs ?? null;
     this.ticketPool = params.ticketPool;
     this.ruleSchedule = params.ruleSchedule ?? [];
+    this.demo = params.demo ?? false;
     this.onEvent = params.onEvent;
 
-    this.id = `${params.participantId}-${params.taskCondition}-${params.robotCondition}-${Date.now()}`;
-    this.status = 'running';
-    this.startedAt = Date.now();
+    const tag = this.demo ? '-demo' : '';
+    this.id = `${params.participantId}-${params.taskCondition}-${params.robotCondition}${tag}-${Date.now()}`;
+    this.status = 'briefing';
+    this.createdAt = Date.now();
+    this.startedAt = this.createdAt;
     this.lastDispatchAt = this.startedAt;
     this.activeRules = { ...DEFAULT_RULES };
   }
 
-  /** Start dispatching tickets and arm the rule/session timers. */
+  /** End the briefing: start dispatching tickets and arm the rule/session timers. */
   begin(): void {
+    if (this.status !== 'briefing') return;
+    this.status = 'running';
+    this.startedAt = Date.now();
+    this.lastDispatchAt = this.startedAt;
     this.scheduleNextTicket();
     this.scheduleRuleTimers();
     this.scheduleSessionTimer(this.sessionTimerMs ?? undefined);
@@ -151,9 +164,10 @@ export class Session {
   }
 
   end(): void {
+    const neverStarted = this.status === 'briefing';
     this.status = 'ended';
     this.endedAt = Date.now();
-    this.duration = this.endedAt - this.startedAt - this.totalPausedMs;
+    this.duration = neverStarted ? 0 : this.endedAt - this.startedAt - this.totalPausedMs;
 
     if (this.dispatchTimer) clearTimeout(this.dispatchTimer);
     if (this.sessionTimer) clearTimeout(this.sessionTimer);
@@ -188,6 +202,7 @@ export class Session {
 
   /** Elapsed active time (excludes paused time) */
   get elapsedActiveMs(): number {
+    if (this.status === 'briefing') return 0;
     const now = this.status === 'paused' && this.pausedAt ? this.pausedAt : Date.now();
     return now - this.startedAt - this.totalPausedMs;
   }

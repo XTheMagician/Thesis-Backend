@@ -1,6 +1,6 @@
 import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
-import { resolveRobotConfig } from './config/conditions';
+import { BRIEFING_START_TOOL, resolveRobotConfig } from './config/conditions';
 import { logEvent, logRobotEvent, logSessionSummary, closeSession, type LogMeta } from './logger';
 import type { Hub } from './hub';
 import type { DialogManager } from './robot/dialog-manager';
@@ -21,7 +21,10 @@ import type {
  */
 export interface Subsystem {
   name: string;
+  /** Session created — the briefing begins (demo runs go straight on to onTaskStart) */
   onSessionStart?(session: Session): void;
+  /** Briefing over — tickets and timers are running from now on */
+  onTaskStart?(session: Session): void;
   onSessionPause?(session: Session): void;
   onSessionResume?(session: Session): void;
   onSessionEnd?(session: Session): void;
@@ -36,7 +39,11 @@ export interface StartParams {
   sessionTimerMs?: number;
   ruleSchedule?: RuleScheduleEntry[];
   robotOverrides?: RobotOverrides;
+  demo?: boolean;
 }
+
+/** What ended the briefing: the robot's start tool, the admin panel, or a demo run (no briefing). */
+export type TaskStartTrigger = 'robot' | 'admin' | 'demo';
 
 type Result<T = undefined> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -48,9 +55,22 @@ type Result<T = undefined> = { ok: true; value: T } | { ok: false; error: string
 export class Orchestrator {
   private activeSession: Session | null = null;
   private subsystems: Subsystem[] = [];
+  // Talkative briefing: the explanation follows the participant's first reply
+  private briefingExplanationPending = false;
+  // The start tool is only honoured once the participant has spoken after
+  // the robot's latest briefing line — the model sometimes calls it in
+  // place of speaking the "Bist du bereit?" line itself
+  private participantSpokeSinceBriefingLine = false;
 
   constructor(private hub: Hub, private dialog: DialogManager) {
     this.wireRobotLogging();
+
+    // Headset (dis)connects during a session explain cut-off robot speech
+    this.hub.onClientChange = ({ clientId, clientType, change, reason }) => {
+      const session = this.activeSession;
+      if (!session || session.demo) return;
+      logRobotEvent(this.logMeta(session), `client:${change}`, { clientId, clientType, reason });
+    };
   }
 
   /**
@@ -60,9 +80,12 @@ export class Orchestrator {
    */
   private wireRobotLogging(): void {
     const meta = (): LogMeta | null =>
-      this.activeSession ? this.logMeta(this.activeSession) : null;
+      this.activeSession && !this.activeSession.demo ? this.logMeta(this.activeSession) : null;
 
     this.dialog.onTransition = (from, to, reason) => {
+      // VAD speech start: arrives before the response it triggers, unlike
+      // the (asynchronous) input transcript
+      if (to === 'listening') this.participantSpokeSinceBriefingLine = true;
       const m = meta();
       if (m) logRobotEvent(m, 'robot:state', { from, to, reason });
     };
@@ -72,9 +95,11 @@ export class Orchestrator {
     this.dialog.onTranscript = (role, text) => {
       const m = meta();
       if (m && role !== 'injected') logRobotEvent(m, 'robot:transcript', { role, text });
+      if (role === 'user') this.continueBriefing();
     };
 
     this.dialog.onSpeechRequest = (request, disposition, waitedMs) => {
+      if (request.source === 'briefing' && disposition === 'fired') this.participantSpokeSinceBriefingLine = false;
       const m = meta();
       if (m) {
         logRobotEvent(m, 'robot:speech:request', {
@@ -94,6 +119,27 @@ export class Orchestrator {
     this.dialog.onInterruptionIgnored = (request) => {
       const m = meta();
       if (m) logRobotEvent(m, 'robot:interruption:ignored', { source: request.source, text: request.text });
+    };
+
+    // The participant said they are ready — the robot ends the briefing
+    this.dialog.onToolCall = (name) => {
+      if (name !== BRIEFING_START_TOOL) return { ok: false, error: `Unbekannte Funktion "${name}".` };
+
+      // Premature call — the dialog manager retries the verbatim line the
+      // model skipped, and the result tells the model to wait for the answer
+      if (this.activeSession?.status === 'briefing' && !this.participantSpokeSinceBriefingLine) {
+        console.log(`[Session] rejected ${name}: participant has not answered yet`);
+        const m = meta();
+        if (m) logRobotEvent(m, 'robot:tool:rejected', { name, reason: 'participant has not answered yet' });
+        return {
+          ok: false,
+          error: 'Der Teilnehmer hat noch nicht geantwortet. Die Aufgabe startet erst, wenn er bestätigt, dass er bereit ist.',
+        };
+      }
+
+      const result = this.beginTask('robot');
+      if (!result.ok) console.log(`[Session] ignored ${name}: ${result.error}`);
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
     };
   }
 
@@ -128,13 +174,14 @@ export class Orchestrator {
       sessionTimerMs: params.sessionTimerMs,
       ticketPool: getTicketPool(),
       ruleSchedule: params.ruleSchedule,
+      demo: params.demo,
       onEvent: (event) => this.handleSessionEvent(event),
     });
     this.activeSession = session;
 
     // The resolved robot config goes into the log so every session records
     // the exact treatment the participant received.
-    logEvent(this.logMeta(session), 'session:started', { robotConfig });
+    this.log(session, 'session:started', { robotConfig });
 
     this.hub.broadcast({
       type: 'session:started',
@@ -145,17 +192,89 @@ export class Orchestrator {
       robotCondition: session.robotCondition,
       rules: session.activeRules,
       robotConfig,
+      status: session.status,
+      demo: session.demo,
       ticketIntervalMs: session.ticketIntervalMs,
       ticketJitter: session.ticketJitter,
       timerDurationMs: session.sessionTimerMs,
       startedAt: session.startedAt,
     });
 
-    session.begin();
+    // Starts the voice session (not in demo runs)
     this.notify('onSessionStart', session);
-
     console.log(`[Session] Started: ${session.id}`);
+
+    this.briefingExplanationPending = !session.demo && robotConfig.briefingExplanation.length > 0;
+    if (session.demo) {
+      this.beginTask('demo');
+    } else {
+      // Queued until the voice session is ready; the scripted rest of the
+      // briefing follows from the system prompt
+      this.dialog.requestSpeech({
+        text: robotConfig.briefingOpener,
+        mode: 'verbatim',
+        source: 'briefing',
+        priority: 'high',
+      });
+    }
     return { ok: true, value: session };
+  }
+
+  /**
+   * The participant answered the opener (normally with their name): queue
+   * the scripted explanation. It plays once the robot's own reply to the
+   * name has finished.
+   */
+  private continueBriefing(): void {
+    const session = this.activeSession;
+    if (!this.briefingExplanationPending || session?.status !== 'briefing') return;
+    this.briefingExplanationPending = false;
+    this.dialog.requestSpeech({
+      text: session.robotConfig.briefingExplanation,
+      mode: 'verbatim',
+      source: 'briefing',
+      priority: 'high',
+    });
+  }
+
+  /**
+   * End the briefing and start the task: tickets, rule changes, the session
+   * timer and the robot's scheduled speech all count from this moment.
+   */
+  beginTask(trigger: TaskStartTrigger): Result {
+    const session = this.activeSession;
+    if (!session || session.status !== 'briefing') {
+      return { ok: false, error: 'No session in briefing.' };
+    }
+
+    const briefingDurationMs = Date.now() - session.createdAt;
+    this.briefingExplanationPending = false;
+    session.begin();
+
+    if (!session.demo) {
+      // The start tool must not fire a second time mid-task
+      this.dialog.setTools([]);
+      this.dialog.addContext('[SYSTEM] Die Einführung ist beendet, die Aufgabe läuft jetzt.');
+      this.dialog.requestSpeech({
+        text: session.robotConfig.briefingStartLine,
+        mode: 'verbatim',
+        source: 'briefing',
+        priority: 'high',
+      });
+    }
+
+    this.log(session, 'task:started', { trigger, briefingDurationMs });
+    this.hub.broadcast({
+      type: 'session:taskStarted',
+      sessionId: session.id,
+      trigger,
+      startedAt: session.startedAt,
+      timerDurationMs: session.sessionTimerMs,
+    });
+
+    this.notify('onTaskStart', session);
+    console.log(`[Session] Task started (${trigger}) after ${briefingDurationMs}ms briefing: ${session.id}`);
+    return { ok: true, value: undefined };
   }
 
   pauseSession(): Result {
@@ -167,7 +286,7 @@ export class Orchestrator {
     session.pause();
     this.notify('onSessionPause', session);
 
-    logEvent(this.logMeta(session), 'session:paused');
+    this.log(session, 'session:paused');
     this.hub.broadcast({ type: 'session:paused', sessionId: session.id });
 
     console.log(`[Session] Paused: ${session.id}`);
@@ -183,7 +302,7 @@ export class Orchestrator {
     const remainingMs = session.resume();
     this.notify('onSessionResume', session);
 
-    logEvent(this.logMeta(session), 'session:resumed');
+    this.log(session, 'session:resumed');
     this.hub.broadcast({ type: 'session:resumed', sessionId: session.id, remainingMs });
 
     console.log(`[Session] Resumed: ${session.id}`);
@@ -201,7 +320,7 @@ export class Orchestrator {
 
     const accuracy = computeAccuracy(session.stats.correct, session.stats.total);
 
-    logEvent(this.logMeta(session), 'session:ended', {
+    this.log(session, 'session:ended', {
       totalProcessed: session.stats.total,
       totalCorrect: session.stats.correct,
       totalWrong: session.stats.wrong,
@@ -209,10 +328,13 @@ export class Orchestrator {
       sessionDurationMs: session.duration ?? undefined,
     });
 
-    logSessionSummary(this.logMeta(session), {
-      totalCorrect: session.stats.correct,
-      totalWrong: session.stats.wrong,
-    });
+    // Demo runs are not logged — no summary row either
+    if (!session.demo) {
+      logSessionSummary(this.logMeta(session), {
+        totalCorrect: session.stats.correct,
+        totalWrong: session.stats.wrong,
+      });
+    }
 
     closeSession(session.id);
 
@@ -246,7 +368,7 @@ export class Orchestrator {
     const { result } = outcome;
     const accuracy = computeAccuracy(session.stats.correct, session.stats.total);
 
-    logEvent(this.logMeta(session), 'ticket:sorted', {
+    this.log(session, 'ticket:sorted', {
       ticketId: result.ticketId,
       ticketCategory: result.ticketCategory,
       decision: result.decision,
@@ -273,8 +395,11 @@ export class Orchestrator {
 
   statusPayload(): object {
     const session = this.activeSession;
+    // Connection state for the admin panel, independent of any session
+    const connections = { ...this.hub.clientsStatus, robotState: this.dialog.currentState };
     return session && session.status !== 'ended'
       ? {
+          ...connections,
           type: 'session:status',
           status: session.status,
           sessionId: session.id,
@@ -284,6 +409,7 @@ export class Orchestrator {
           robotCondition: session.robotCondition,
           rules: session.activeRules,
           robotConfig: session.robotConfig,
+          demo: session.demo,
           stats: session.stats,
           queue: session.queue,
           ticketIntervalMs: session.ticketIntervalMs,
@@ -293,7 +419,7 @@ export class Orchestrator {
           totalPausedMs: session.totalPausedMs,
           pausedAt: session.pausedAt,
         }
-      : { type: 'session:status', status: 'idle' };
+      : { ...connections, type: 'session:status', status: 'idle' };
   }
 
   // ------------------------------------------------------------------ //
@@ -306,7 +432,7 @@ export class Orchestrator {
 
     switch (event.kind) {
       case 'ticketQueued':
-        logEvent(this.logMeta(session), 'ticket:queued', {
+        this.log(session, 'ticket:queued', {
           ticketId: event.ticket.id,
           ticketCategory: event.ticket.category,
         });
@@ -314,14 +440,15 @@ export class Orchestrator {
         break;
 
       case 'rulesChanged':
-        logEvent(this.logMeta(session), 'rule:changed', {
+        this.log(session, 'rule:changed', {
           activeRules: event.rules,
           robotSpeech: event.robotSpeech,
         });
         this.hub.broadcast({ type: 'rule:changed', rules: event.rules, robotSpeech: event.robotSpeech });
         // Announcements jump the speech queue but never cut off ongoing
-        // speech — and once speaking, participant barge-in can't cut THEM off
-        if (event.robotSpeech) {
+        // speech — and once speaking, participant barge-in can't cut THEM off.
+        // Demo runs have no voice session to speak with.
+        if (event.robotSpeech && !session.demo) {
           this.dialog.requestSpeech({
             text: event.robotSpeech,
             mode: 'verbatim',
@@ -351,6 +478,12 @@ export class Orchestrator {
         console.error(`[Orchestrator] Subsystem "${sub.name}" failed in ${hook}:`, err);
       }
     }
+  }
+
+  /** Task-event log line (CSV + JSONL). Demo runs are not logged at all. */
+  private log(session: Session, eventType: string, fields?: Record<string, unknown>): void {
+    if (session.demo) return;
+    logEvent(this.logMeta(session), eventType, fields);
   }
 
   private logMeta(session: Session): LogMeta {

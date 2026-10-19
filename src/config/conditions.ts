@@ -1,4 +1,5 @@
 import type { RobotCondition, RobotConfig, RobotOverrides } from '../types';
+import type { RealtimeTool } from '../robot/openai-realtime';
 
 // ------------------------------------------------------------------ //
 //  Per-condition robot behaviour presets                               //
@@ -24,10 +25,118 @@ export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 45;
 export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 90;
 export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
-// Always the very first small-talk impulse, delivered verbatim so every
-// participant hears the identical introduction.
-const SMALL_TALK_INTRO =
-  'Hallo, ich glaube wir wurden uns noch nicht vorgestellt. Mein Name ist C3PO, und wie heißt du?';
+// ------------------------------------------------------------------ //
+//  Briefing — the robot explains the task before any ticket arrives.  //
+//  The opener is injected verbatim once the voice session is up, so    //
+//  every participant in a condition hears the same first line. The     //
+//  talkative explanation is injected verbatim too, after the           //
+//  participant's first reply (their name); everything else follows     //
+//  the condition's briefing rule in the system prompt.                 //
+//  When the participant says they are ready, the model calls the       //
+//  start tool (BRIEFING_START_TOOL), the orchestrator starts the task  //
+//  and the robot says the condition's start line verbatim.             //
+//                                                                      //
+//  Both conditions convey the same task information; only the social   //
+//  layer differs. Talkative: greeting, names, small exchange. Quiet:   //
+//  no greeting, no names, a single factual line.                       //
+// ------------------------------------------------------------------ //
+
+export const BRIEFING_START_TOOL = 'aufgabe_starten';
+
+/** Offered to the model for the briefing only; removed once the task runs */
+export const BRIEFING_TOOLS: RealtimeTool[] = [
+  {
+    name: BRIEFING_START_TOOL,
+    description:
+      'Startet die Aufgabe. Nur aufrufen, wenn der Teilnehmer in der Einführung bestätigt hat, dass er bereit ist.',
+  },
+];
+
+// Shared by both briefing rules. Verbatim lines arrive split into pieces
+// (dialog manager); without this the model tacks its own "Bereit?" onto
+// every piece, because the briefing rule tells it to ask for readiness.
+const BRIEFING_PIECES_RULE =
+  'Lange "[SYSTEM: VERBATIM]"-Texte erhältst du in mehreren Teilen nacheinander. Sprich jeden Teil genau so aus, ' +
+  'wie er ist, und hänge nichts an, auch keine Frage, ob der Teilnehmer bereit ist.\n';
+
+const BRIEFING_TOOL_RULE =
+  'Rufe "' + BRIEFING_START_TOOL + '" ausschließlich während der Einführung auf und nur, wenn der Teilnehmer ' +
+  'eindeutig zugestimmt hat. Sobald die Aufgabe begonnen hat, gelten wieder nur deine normalen Verhaltensregeln.';
+
+// --- Talkative ---------------------------------------------------- //
+
+const TALKATIVE_BRIEFING_OPENER =
+  'Hi, ich bin Roni. Sieht so aus als arbeiten wir heute zusammen. Wie ist dein Name?';
+
+const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
+
+// Injected verbatim after the participant's first reply, i.e. after the
+// model's own "schöner Name" line; the dialog manager splits it into pieces
+const TALKATIVE_BRIEFING_EXPLANATION =
+  'Also, unsere Aufgabe ist gar nicht so schwer. Wir arbeiten gemeinsam Kundensupport-Tickets ab. ' +
+  'Du musst für jedes Ticket anhand seiner Kategorie entscheiden, ob ich, eine KI, das erledigen kann, ' +
+  'oder ob es dazu menschlichen Support braucht. Es kann vorkommen, dass sich meine Fähigkeiten, ' +
+  'bestimmte Tickets zu verarbeiten, im Laufe der Aufgabe ändern, das teile ich dir aber mit. ' +
+  'Wenn du nicht weiter weißt oder eine Frage hast, melde dich einfach bei mir. Bist du bereit?';
+
+// Overrides the condition's behaviour rules for the briefing only
+const TALKATIVE_BRIEFING_RULE =
+  '\n\nEinführung (vor Beginn der Aufgabe):\n' +
+  'Die Sitzung beginnt mit einer Einführung. Sie gilt für dich unabhängig von allen anderen Verhaltensregeln ' +
+  'und läuft genau so ab:\n' +
+  '1. Du stellst dich per "[SYSTEM: VERBATIM]" vor und fragst nach dem Namen.\n' +
+  '2. Sobald der Teilnehmer seinen Namen genannt hat, sagst du wortwörtlich nur: ' +
+  '"Oh, das ist aber ein schöner Name." Die Erklärung der Aufgabe erhältst du danach per "[SYSTEM: VERBATIM]"; ' +
+  'erkläre die Aufgabe nicht von dir aus. Die Frage "Bist du bereit?" ist Teil dieser Erklärung.\n' +
+  '3. Bestätigt der Teilnehmer, dass er bereit ist, rufst du sofort die Funktion "' + BRIEFING_START_TOOL + '" auf ' +
+  'und sagst selbst nichts weiter.\n' +
+  '4. Hat der Teilnehmer stattdessen Fragen oder ist unsicher, beantwortest du seine Fragen kurz und freundlich ' +
+  'mithilfe des Aufgabenwissens unten und fragst danach erneut: "Bist du bereit?"\n' +
+  BRIEFING_PIECES_RULE +
+  BRIEFING_TOOL_RULE;
+
+// --- Quiet -------------------------------------------------------- //
+
+// The whole explanation is the opener — no exchange needed before it.
+// Ends in "Bist du bereit?": a lone trailing "Bereit?" was mostly missing
+// from the provider's audio even though its transcript showed it.
+const QUIET_BRIEFING_OPENER =
+  'Unsere Aufgabe: Kundensupport-Tickets sortieren. Entscheide für jedes Ticket anhand seiner Kategorie, ' +
+  'ob es an mich, die KI, geht oder an den menschlichen Support. Die Zuordnung kann sich während der Aufgabe ' +
+  'ändern, das kündige ich an. Bei Fragen melde dich. Bist du bereit?';
+
+const QUIET_BRIEFING_START_LINE = 'Aufgabe startet.';
+
+const QUIET_BRIEFING_RULE =
+  '\n\nEinführung (vor Beginn der Aufgabe):\n' +
+  'Die Sitzung beginnt mit einer Einführung. Sie läuft genau so ab:\n' +
+  '1. Du erhältst die Erklärung der Aufgabe per "[SYSTEM: VERBATIM]"; sie endet mit der Frage "Bist du bereit?". ' +
+  'Du stellst dich nicht vor, nennst keinen Namen und fragst nicht nach dem Namen des Teilnehmers.\n' +
+  '2. Bestätigt der Teilnehmer, dass er bereit ist, rufst du sofort die Funktion "' + BRIEFING_START_TOOL + '" auf ' +
+  'und sagst selbst nichts weiter.\n' +
+  '3. Hat der Teilnehmer stattdessen Fragen oder ist unsicher, beantwortest du seine Fragen so kurz und sachlich ' +
+  'wie möglich mithilfe des Aufgabenwissens unten und fragst danach nur: "Bist du bereit?"\n' +
+  BRIEFING_PIECES_RULE +
+  BRIEFING_TOOL_RULE;
+
+// What the robot knows about the task so it can answer questions during
+// the briefing and later. Kept to what the participant sees on screen —
+// the robot explains, it does not sort for them.
+const TASK_KNOWLEDGE =
+  '\n\nAufgabenwissen:\n' +
+  '- Auf dem Bildschirm des Teilnehmers erscheinen nacheinander Kundensupport-Tickets in einer Warteschlange. ' +
+  'Jedes Ticket hat eine Kategorie: Software, Versand, Allgemein, Buchhaltung, Personal oder Retouren.\n' +
+  '- Für jedes Ticket klickt der Teilnehmer entweder auf "KI-Agent" (das Ticket geht an dich) oder auf ' +
+  '"Mensch" (das Ticket geht an den menschlichen Support).\n' +
+  '- Welche Kategorie wohin gehört, steht links auf dem Bildschirm in der Regelübersicht. Zu Beginn bearbeitest ' +
+  'du Software, Versand und Allgemein; Buchhaltung, Personal und Retouren gehen an den menschlichen Support.\n' +
+  '- Diese Zuordnung kann sich während der Aufgabe ändern. Du kündigst jede Änderung an, und die Regelübersicht ' +
+  'wird automatisch aktualisiert. Entscheidend ist immer die aktuell angezeigte Zuordnung.\n' +
+  '- Es kommt darauf an, die Tickets möglichst richtig zu sortieren. Neue Tickets kommen in regelmäßigen ' +
+  'Abständen dazu, auch wenn die Warteschlange noch nicht leer ist.\n' +
+  '- Die Aufgabe dauert einige Minuten und endet automatisch.\n' +
+  '- Fragen, die du mit diesem Wissen nicht beantworten kannst (z.B. zur Studie selbst, zur Vergütung oder zur ' +
+  'Technik), verweist du freundlich an die Versuchsleitung.';
 
 // Appended to both condition prompts. The prompts being written in German
 // is not enough: a garbled transcript or one off-language reply flips the
@@ -87,13 +196,18 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         '\n' +
         'Input “[SYSTEM: PROMPT] Das Wetter heute"\n' +
         'Antwort: “Wie ist das Wetter heute? Habe gehört nächste Woche soll es windig werden.”' +
+        TALKATIVE_BRIEFING_RULE +
+        TASK_KNOWLEDGE +
         LANGUAGE_RULE,
     responseLength: 'long',
     voice: DEFAULT_VOICE,
     voiceStyle: DEFAULT_VOICE_STYLE,
 
+    briefingOpener: TALKATIVE_BRIEFING_OPENER,
+    briefingExplanation: TALKATIVE_BRIEFING_EXPLANATION,
+    briefingStartLine: TALKATIVE_BRIEFING_START_LINE,
+
     smallTalkEnabled: true,
-    smallTalkIntro: SMALL_TALK_INTRO,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.3,
@@ -131,13 +245,19 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         '\n' +
         'Input “[SYSTEM: PROMPT] Fortschritt bei der Arbeit, 3 Tickets erhalten und bearbeitet"\n' +
         'Antwort: “Ich habe 3 Tickets erhalten und alle erfolgreich bearbeitet.”' +
+        QUIET_BRIEFING_RULE +
+        TASK_KNOWLEDGE +
         LANGUAGE_RULE,
     responseLength: 'short',
     voice: DEFAULT_VOICE,
     voiceStyle: DEFAULT_VOICE_STYLE,
 
+    briefingOpener: QUIET_BRIEFING_OPENER,
+    // The quiet opener already contains the explanation
+    briefingExplanation: '',
+    briefingStartLine: QUIET_BRIEFING_START_LINE,
+
     smallTalkEnabled: false,
-    smallTalkIntro: SMALL_TALK_INTRO,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.3,

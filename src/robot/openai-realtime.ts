@@ -16,14 +16,22 @@ export type RealtimeEvent =
   | { kind: 'speechStarted' }
   | { kind: 'speechStopped' }
   | { kind: 'responseDone'; status: string }
+  | { kind: 'toolCall'; name: string; callId: string }
   | { kind: 'error'; message: string }
   | { kind: 'closed' };
+
+export interface RealtimeTool {
+  name: string;
+  description: string;
+}
 
 export interface RealtimeSessionOptions {
   apiKey: string;
   model: string;
   instructions: string;
   voice: string;
+  /** Parameterless functions the model may call (e.g. the briefing's start tool) */
+  tools?: RealtimeTool[];
   onEvent: (event: RealtimeEvent) => void;
 }
 
@@ -46,6 +54,7 @@ export class OpenAiRealtimeSession {
         session: {
           type: 'realtime',
           instructions: this.opts.instructions,
+          tools: toToolDefinitions(this.opts.tools ?? []),
           audio: {
             input: {
               format: { type: 'audio/pcm', rate: 24000 },
@@ -135,6 +144,23 @@ export class OpenAiRealtimeSession {
     });
   }
 
+  /** Replace the callable tools mid-session — e.g. drop the start tool once the task runs. */
+  setTools(tools: RealtimeTool[]): void {
+    this.send({ type: 'session.update', session: { type: 'realtime', tools: toToolDefinitions(tools) } });
+  }
+
+  /**
+   * Answer a function call so the conversation history stays well-formed.
+   * Deliberately no response.create: callers decide whether and what the
+   * robot says next.
+   */
+  addToolResult(callId: string, output: string): void {
+    this.send({
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: callId, output },
+    });
+  }
+
   close(): void {
     this.closedByUs = true;
     this.ws?.close();
@@ -183,6 +209,15 @@ export class OpenAiRealtimeSession {
         emit({ kind: 'speechStopped' });
         break;
 
+      // Arrives before response.done of the same response
+      case 'response.output_item.done': {
+        const item = event.item as { type?: string; name?: string; call_id?: string } | undefined;
+        if (item?.type === 'function_call' && item.name && item.call_id) {
+          emit({ kind: 'toolCall', name: item.name, callId: item.call_id });
+        }
+        break;
+      }
+
       case 'response.done': {
         // status 'cancelled' means the response was truncated (VAD barge-in)
         const response = event.response as { status?: string } | undefined;
@@ -197,4 +232,13 @@ export class OpenAiRealtimeSession {
       }
     }
   }
+}
+
+function toToolDefinitions(tools: RealtimeTool[]): object[] {
+  return tools.map((t) => ({
+    type: 'function',
+    name: t.name,
+    description: t.description,
+    parameters: { type: 'object', properties: {} },
+  }));
 }

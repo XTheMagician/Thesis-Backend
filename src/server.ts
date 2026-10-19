@@ -7,6 +7,7 @@ import { Orchestrator } from './orchestrator';
 import { DialogManager } from './robot/dialog-manager';
 import { SpeechScheduler } from './robot/scheduler';
 import { handleMessage } from './ws-router';
+import { BRIEFING_TOOLS } from './config/conditions';
 import {
   getExportPath,
   getJsonlExportPath,
@@ -101,10 +102,13 @@ const orchestrator = new Orchestrator(hub, dialog);
 hub.onMessage((clientId, msg) => handleMessage({ clientId, msg, hub, orchestrator, dialog }));
 hub.onUnityBinary((_clientId, pcm) => dialog.handleMicAudio(pcm));
 
-// Robot subsystems, driven by the study-session lifecycle
+// Robot subsystems, driven by the study-session lifecycle. Demo runs
+// showcase the app only — no voice session, so the robot stays silent.
 orchestrator.register({
   name: 'voice',
-  onSessionStart: (session) => dialog.startVoice(session.robotConfig),
+  onSessionStart: (session) => {
+    if (!session.demo) dialog.startVoice(session.robotConfig, BRIEFING_TOOLS);
+  },
   onSessionEnd: () => dialog.stopVoice(),
 });
 orchestrator.register(new SpeechScheduler(dialog));
