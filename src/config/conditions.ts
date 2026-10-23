@@ -1,5 +1,6 @@
-import type { RobotCondition, RobotConfig, RobotOverrides } from '../types';
+import type { RobotCondition, RobotConfig, RobotOverrides, TicketCategory } from '../types';
 import type { RealtimeTool } from '../robot/openai-realtime';
+import { CATEGORY_LABELS, DEFAULT_CATEGORY_COUNT, initialSides, type CategoryCount } from '../task/categories';
 
 // ------------------------------------------------------------------ //
 //  Per-condition robot behaviour presets                               //
@@ -119,17 +120,22 @@ const QUIET_BRIEFING_RULE =
   BRIEFING_PIECES_RULE +
   BRIEFING_TOOL_RULE;
 
+// The session's category set (3 or 4 per side) is filled in by
+// resolveRobotConfig, so the prompt lists exactly what is on screen.
+const CATEGORY_LIST_PLACEHOLDER = '{{KATEGORIEN}}';
+const INITIAL_RULES_PLACEHOLDER = '{{STARTZUORDNUNG}}';
+
 // What the robot knows about the task so it can answer questions during
 // the briefing and later. Kept to what the participant sees on screen —
 // the robot explains, it does not sort for them.
 const TASK_KNOWLEDGE =
   '\n\nAufgabenwissen:\n' +
   '- Auf dem Bildschirm des Teilnehmers erscheinen nacheinander Kundensupport-Tickets in einer Warteschlange. ' +
-  'Jedes Ticket hat eine Kategorie: Software, Versand, Allgemein, Buchhaltung, Personal oder Retouren.\n' +
+  'Jedes Ticket hat eine Kategorie: ' + CATEGORY_LIST_PLACEHOLDER + '.\n' +
   '- Für jedes Ticket klickt der Teilnehmer entweder auf "KI-Agent" (das Ticket geht an dich) oder auf ' +
   '"Mensch" (das Ticket geht an den menschlichen Support).\n' +
-  '- Welche Kategorie wohin gehört, steht links auf dem Bildschirm in der Regelübersicht. Zu Beginn bearbeitest ' +
-  'du Software, Versand und Allgemein; Buchhaltung, Personal und Retouren gehen an den menschlichen Support.\n' +
+  '- Welche Kategorie wohin gehört, steht links auf dem Bildschirm in der Regelübersicht. ' +
+  INITIAL_RULES_PLACEHOLDER + '\n' +
   '- Diese Zuordnung kann sich während der Aufgabe ändern. Du kündigst jede Änderung an, und die Regelübersicht ' +
   'wird automatisch aktualisiert. Entscheidend ist immer die aktuell angezeigte Zuordnung.\n' +
   '- Es kommt darauf an, die Tickets möglichst richtig zu sortieren. Neue Tickets kommen in regelmäßigen ' +
@@ -273,14 +279,19 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
 };
 
 /**
- * Resolve the preset for a condition and layer optional per-session
- * overrides (admin panel) on top. Invalid values — empty strings,
- * non-finite or sub-5-second intervals, negative quiet times — fall back
- * to the preset.
+ * Resolve the preset for a condition, fill in the session's ticket
+ * categories and layer optional per-session overrides (admin panel) on
+ * top. Invalid values — empty strings, non-finite or sub-5-second
+ * intervals, negative quiet times — fall back to the preset.
  */
-export function resolveRobotConfig(condition: RobotCondition, overrides?: RobotOverrides): RobotConfig {
-  const base = ROBOT_CONFIGS[condition];
-  if (!overrides) return { ...base };
+export function resolveRobotConfig(
+  condition: RobotCondition,
+  overrides?: RobotOverrides,
+  categoryCount: CategoryCount = DEFAULT_CATEGORY_COUNT,
+): RobotConfig {
+  const preset = ROBOT_CONFIGS[condition];
+  const base = { ...preset, systemPrompt: fillCategories(preset.systemPrompt, categoryCount) };
+  if (!overrides) return base;
 
   return {
     ...base,
@@ -294,6 +305,23 @@ export function resolveRobotConfig(condition: RobotCondition, overrides?: RobotO
       cleanIntervalSec(overrides.progressReportIntervalSec) ?? base.progressReportIntervalSec,
     impulseQuietSec: cleanQuietSec(overrides.impulseQuietSec) ?? base.impulseQuietSec,
   };
+}
+
+function fillCategories(prompt: string, count: CategoryCount): string {
+  const { ai, human } = initialSides(count);
+  const labels = (cats: TicketCategory[]) => cats.map((c) => CATEGORY_LABELS[c]);
+  const initialRules =
+    'Zu Beginn bearbeitest du ' + joinGerman(labels(ai), 'und') + '; ' +
+    joinGerman(labels(human), 'und') + ' gehen an den menschlichen Support.';
+  return prompt
+    .replace(CATEGORY_LIST_PLACEHOLDER, joinGerman(labels([...ai, ...human]), 'oder'))
+    .replace(INITIAL_RULES_PLACEHOLDER, initialRules);
+}
+
+/** "A, B und C" */
+function joinGerman(items: string[], conjunction: 'und' | 'oder'): string {
+  if (items.length <= 1) return items.join('');
+  return items.slice(0, -1).join(', ') + ' ' + conjunction + ' ' + items[items.length - 1];
 }
 
 function cleanString(val: unknown): string | undefined {

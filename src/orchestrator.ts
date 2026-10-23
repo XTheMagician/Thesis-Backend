@@ -1,5 +1,6 @@
 import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
+import { activeCategories, DEFAULT_CATEGORY_COUNT, isCategoryCount } from './task/categories';
 import { BRIEFING_START_TOOL, resolveRobotConfig } from './config/conditions';
 import { logEvent, logRobotEvent, logSessionSummary, closeSession, type LogMeta } from './logger';
 import type { Hub } from './hub';
@@ -36,6 +37,7 @@ export interface StartParams {
   robotCondition: RobotCondition;
   ticketIntervalMs?: number;
   ticketJitter?: number;
+  categoryCount?: number;
   sessionTimerMs?: number;
   ruleSchedule?: RuleScheduleEntry[];
   robotOverrides?: RobotOverrides;
@@ -160,7 +162,8 @@ export class Orchestrator {
       return { ok: false, error: 'A session is already running.' };
     }
 
-    const robotConfig = resolveRobotConfig(params.robotCondition, params.robotOverrides);
+    const categoryCount = isCategoryCount(params.categoryCount) ? params.categoryCount : DEFAULT_CATEGORY_COUNT;
+    const robotConfig = resolveRobotConfig(params.robotCondition, params.robotOverrides, categoryCount);
     const intervalMs =
       params.ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 
@@ -171,8 +174,9 @@ export class Orchestrator {
       robotConfig,
       ticketIntervalMs: intervalMs,
       ticketJitter: params.ticketJitter,
+      categoryCount,
       sessionTimerMs: params.sessionTimerMs,
-      ticketPool: getTicketPool(),
+      ticketPool: getTicketPool(activeCategories(categoryCount)),
       ruleSchedule: params.ruleSchedule,
       demo: params.demo,
       onEvent: (event) => this.handleSessionEvent(event),
@@ -181,7 +185,7 @@ export class Orchestrator {
 
     // The resolved robot config goes into the log so every session records
     // the exact treatment the participant received.
-    this.log(session, 'session:started', { robotConfig });
+    this.log(session, 'session:started', { robotConfig, categoryCount });
 
     this.hub.broadcast({
       type: 'session:started',
@@ -196,6 +200,7 @@ export class Orchestrator {
       demo: session.demo,
       ticketIntervalMs: session.ticketIntervalMs,
       ticketJitter: session.ticketJitter,
+      categoryCount: session.categoryCount,
       timerDurationMs: session.sessionTimerMs,
       startedAt: session.startedAt,
     });
@@ -414,6 +419,7 @@ export class Orchestrator {
           queue: session.queue,
           ticketIntervalMs: session.ticketIntervalMs,
           ticketJitter: session.ticketJitter,
+      categoryCount: session.categoryCount,
           timerDurationMs: session.sessionTimerMs,
           startedAt: session.startedAt,
           totalPausedMs: session.totalPausedMs,
@@ -457,10 +463,6 @@ export class Orchestrator {
             uninterruptible: true,
           });
         }
-        break;
-
-      case 'poolExhausted':
-        this.hub.broadcast({ type: 'session:poolExhausted', sessionId: session.id });
         break;
 
       case 'timerExpired':

@@ -10,15 +10,8 @@ import type {
   TaskCondition,
   Ticket,
 } from '../types';
-
-const DEFAULT_RULES: ActiveRules = {
-  software: 'ai',
-  shipping: 'ai',
-  general: 'ai',
-  accounting: 'human',
-  hr: 'human',
-  returns: 'human',
-};
+import { shuffle } from './tickets';
+import { initialRules, type CategoryCount } from './categories';
 
 /**
  * Domain events the task engine raises. The orchestrator subscribes and
@@ -27,7 +20,6 @@ const DEFAULT_RULES: ActiveRules = {
 export type SessionEvent =
   | { kind: 'ticketQueued'; ticket: QueuedTicket; queueLength: number }
   | { kind: 'rulesChanged'; rules: ActiveRules; robotSpeech: string | null }
-  | { kind: 'poolExhausted' }
   | { kind: 'timerExpired' };
 
 export interface SessionParams {
@@ -37,6 +29,7 @@ export interface SessionParams {
   robotConfig: RobotConfig;
   ticketIntervalMs: number;
   ticketJitter?: number;
+  categoryCount: CategoryCount;
   sessionTimerMs?: number;
   ticketPool: Ticket[];
   ruleSchedule?: RuleScheduleEntry[];
@@ -52,6 +45,8 @@ export class Session {
   readonly robotConfig: RobotConfig;
   readonly ticketIntervalMs: number;
   readonly ticketJitter: number;
+  /** Categories per side; only these appear in activeRules and the ticket pool */
+  readonly categoryCount: CategoryCount;
   readonly sessionTimerMs: number | null;
   /** Demo run: no briefing, no voice, nothing logged */
   readonly demo: boolean;
@@ -74,9 +69,11 @@ export class Session {
   stats: SessionStats = { total: 0, correct: 0, wrong: 0 };
 
   private readonly onEvent: (event: SessionEvent) => void;
-  private readonly ticketPool: Ticket[];
+  private ticketPool: Ticket[];
   private readonly ruleSchedule: RuleScheduleEntry[];
   private ticketIndex = 0;
+  /** 1-based pass through the pool; the pool is reshuffled and repeated once exhausted */
+  private ticketRound = 1;
 
   private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
   private ruleTimers: ReturnType<typeof setTimeout>[] = [];
@@ -94,6 +91,7 @@ export class Session {
     this.robotConfig = params.robotConfig;
     this.ticketIntervalMs = params.ticketIntervalMs;
     this.ticketJitter = params.ticketJitter ?? 0;
+    this.categoryCount = params.categoryCount;
     this.sessionTimerMs = params.sessionTimerMs ?? null;
     this.ticketPool = params.ticketPool;
     this.ruleSchedule = params.ruleSchedule ?? [];
@@ -106,7 +104,7 @@ export class Session {
     this.createdAt = Date.now();
     this.startedAt = this.createdAt;
     this.lastDispatchAt = this.startedAt;
-    this.activeRules = { ...DEFAULT_RULES };
+    this.activeRules = initialRules(this.categoryCount);
   }
 
   /** End the briefing: start dispatching tickets and arm the rule/session timers. */
@@ -184,6 +182,7 @@ export class Session {
 
     const result: SortResult = {
       ticketId: ticket.id,
+      ticketSourceId: ticket.sourceId,
       ticketCategory: ticket.category,
       decision,
       correct,
@@ -219,19 +218,21 @@ export class Session {
   }
 
   private scheduleNextTicket(delayMs?: number): void {
-    if (this.ticketIndex >= this.ticketPool.length) {
-      this.dispatchTimer = null;
-      console.log('[Session] Ticket pool exhausted.');
-      this.onEvent({ kind: 'poolExhausted' });
-      return;
-    }
-
     const delay = delayMs ?? this.randomizedInterval();
 
     this.dispatchTimer = setTimeout(() => {
       if (this.status !== 'running') return;
 
-      const ticket: QueuedTicket = { ...this.ticketPool[this.ticketIndex++], queuedAt: Date.now() };
+      if (this.ticketIndex >= this.ticketPool.length) this.startNextRound();
+
+      const source = this.ticketPool[this.ticketIndex++];
+      const ticket: QueuedTicket = {
+        ...source,
+        // Repeated tickets need a unique id so sort() can't hit an earlier copy still in the queue
+        id: this.ticketRound === 1 ? source.id : `${source.id}#${this.ticketRound}`,
+        sourceId: source.id,
+        queuedAt: Date.now(),
+      };
       this.lastDispatchAt = Date.now();
       this.queue.push(ticket);
       this.onEvent({ kind: 'ticketQueued', ticket, queueLength: this.queue.length });
@@ -239,6 +240,19 @@ export class Session {
       // Chain the next dispatch
       this.scheduleNextTicket();
     }, delay);
+  }
+
+  /** Reshuffle the exhausted pool, avoiding the same ticket twice in a row across the boundary. */
+  private startNextRound(): void {
+    const last = this.ticketPool[this.ticketPool.length - 1];
+    let next = shuffle(this.ticketPool);
+    if (next.length > 1 && next[0].id === last.id) {
+      next = [...next.slice(1), next[0]];
+    }
+    this.ticketPool = next;
+    this.ticketIndex = 0;
+    this.ticketRound++;
+    console.log(`[Session] Ticket pool exhausted — starting round ${this.ticketRound}.`);
   }
 
   private scheduleRuleTimers(): void {
@@ -252,7 +266,9 @@ export class Session {
 
       const timer = setTimeout(() => {
         if (this.status !== 'running') return;
-        this.activeRules = { ...this.activeRules, ...entry.rules };
+        // Only reassign active categories; the admin may have set inactive ones in the schedule
+        const changes = Object.entries(entry.rules).filter(([cat]) => cat in this.activeRules);
+        this.activeRules = { ...this.activeRules, ...Object.fromEntries(changes) };
         this.onEvent({
           kind: 'rulesChanged',
           rules: this.activeRules,

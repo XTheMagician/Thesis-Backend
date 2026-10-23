@@ -12,7 +12,15 @@ export type TaskCondition = 'easy' | 'hard';
 export type RobotCondition = 'talkative' | 'quiet';
 
 export type Decision = 'ai' | 'human';
-export type TicketCategory = 'software' | 'shipping' | 'general' | 'accounting' | 'hr' | 'returns';
+export type TicketCategory =
+  | 'software'
+  | 'shipping'
+  | 'general'
+  | 'appointments'
+  | 'accounting'
+  | 'hr'
+  | 'returns'
+  | 'privacy';
 
 /**
  * Behaviour settings the robot derives from the robot condition.
@@ -79,10 +87,13 @@ export interface Ticket {
 }
 
 export interface QueuedTicket extends Ticket {
+  /** Pool ticket id; `id` gets a `#<round>` suffix once the pool repeats */
+  sourceId: string;
   queuedAt: number;
 }
 
-export type ActiveRules = Record<TicketCategory, Decision>;
+/** Only the session's active categories are present (see task/categories.ts) */
+export type ActiveRules = Partial<Record<TicketCategory, Decision>>;
 
 export interface RuleScheduleEntry {
   atSecond: number;
@@ -98,6 +109,7 @@ export interface SessionStats {
 
 export interface SortResult {
   ticketId: string;
+  ticketSourceId: string;
   ticketCategory: TicketCategory;
   decision: Decision;
   correct: boolean;
@@ -136,6 +148,8 @@ export interface SessionStartMessage {
     condition?: string;
     ticketIntervalMs?: number;
     ticketJitter?: number;
+    /** Categories per side (3 or 4); default 4 */
+    categoryCount?: number;
     sessionTimerMs?: number;
     ruleSchedule?: RuleScheduleEntry[];
     robotOverrides?: RobotOverrides;

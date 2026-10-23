@@ -179,6 +179,210 @@
       "category": "returns",
       "subject": "Artikel beim Transport beschädigt",
       "body": "Das Paket kam sichtbar beschädigt an. Der Artikel darin ist kaputt und völlig unbrauchbar."
+    },
+    {
+      "id": "T031",
+      "category": "software",
+      "subject": "Daten werden nicht gespeichert",
+      "body": "Wenn ich Änderungen an meinem Profil vornehme und auf 'Speichern' klicke, sind sie nach dem Neuladen der Seite wieder verschwunden."
+    },
+    {
+      "id": "T032",
+      "category": "software",
+      "subject": "Fehlermeldung beim Hochladen von Dateien",
+      "body": "Beim Hochladen einer Excel-Datei erscheint immer die Meldung 'Unbekannter Fehler 500'. Kleinere Dateien funktionieren ohne Probleme."
+    },
+    {
+      "id": "T033",
+      "category": "shipping",
+      "subject": "Paket beim Zoll festgehalten",
+      "body": "Laut Sendungsverfolgung hängt mein Paket seit einer Woche beim Zoll fest. Muss ich selbst etwas unternehmen?"
+    },
+    {
+      "id": "T034",
+      "category": "shipping",
+      "subject": "Nur ein Teil der Bestellung angekommen",
+      "body": "Ich habe drei Artikel bestellt, im Paket war aber nur einer. Werden die anderen beiden separat verschickt?"
+    },
+    {
+      "id": "T035",
+      "category": "general",
+      "subject": "Gibt es eine Studentenermäßigung?",
+      "body": "Ich studiere und würde Ihre Software gerne nutzen. Bieten Sie vergünstigte Tarife für Studierende an?"
+    },
+    {
+      "id": "T036",
+      "category": "general",
+      "subject": "Wie lösche ich mein Konto?",
+      "body": "Ich nutze Ihren Dienst nicht mehr und möchte mein Konto inklusive aller Daten vollständig löschen. Wie gehe ich dabei vor?"
+    },
+    {
+      "id": "T037",
+      "category": "accounting",
+      "subject": "Rechnung an falsche Firmenadresse",
+      "body": "Auf unserer letzten Rechnung steht noch unsere alte Firmenadresse. Bitte stellen Sie die Rechnung mit der neuen Anschrift aus."
+    },
+    {
+      "id": "T038",
+      "category": "accounting",
+      "subject": "Gutschrift wurde nicht verrechnet",
+      "body": "Mir wurde letzten Monat eine Gutschrift über 50 € zugesagt, auf der aktuellen Rechnung ist sie aber nicht berücksichtigt."
+    },
+    {
+      "id": "T039",
+      "category": "accounting",
+      "subject": "Wechsel von Kreditkarte auf Lastschrift",
+      "body": "Wir möchten unsere Zahlungsmethode ab dem nächsten Abrechnungszeitraum von Kreditkarte auf SEPA-Lastschrift umstellen."
+    },
+    {
+      "id": "T040",
+      "category": "accounting",
+      "subject": "Mahnung trotz bezahlter Rechnung",
+      "body": "Ich habe eine Mahnung erhalten, obwohl ich die Rechnung bereits vor drei Wochen überwiesen habe. Den Zahlungsbeleg kann ich gerne schicken."
+    },
+    {
+      "id": "T041",
+      "category": "hr",
+      "subject": "Krankmeldung einreichen",
+      "body": "Ich bin seit heute krankgeschrieben und habe eine Arbeitsunfähigkeitsbescheinigung für eine Woche. Wohin soll ich sie schicken?"
+    },
+    {
+      "id": "T042",
+      "category": "hr",
+      "subject": "Anfrage zu Weiterbildungsbudget",
+      "body": "Ich würde gerne an einem zweitägigen Projektmanagement-Seminar teilnehmen. Werden die Kosten vom Weiterbildungsbudget übernommen?"
+    },
+    {
+      "id": "T043",
+      "category": "hr",
+      "subject": "Änderung der Bankverbindung",
+      "body": "Ich habe die Bank gewechselt. Bitte überweisen Sie mein Gehalt ab dem nächsten Monat auf mein neues Konto."
+    },
+    {
+      "id": "T044",
+      "category": "hr",
+      "subject": "Arbeitszeugnis benötigt",
+      "body": "Ich bewerbe mich intern auf eine andere Stelle und benötige dafür ein Zwischenzeugnis. Wie lange dauert die Ausstellung?"
+    },
+    {
+      "id": "T045",
+      "category": "returns",
+      "subject": "Rücksendeetikett funktioniert nicht",
+      "body": "Das Rücksendeetikett aus der E-Mail wird von der Post nicht akzeptiert, der Barcode lässt sich nicht scannen."
+    },
+    {
+      "id": "T046",
+      "category": "returns",
+      "subject": "Artikel passt nicht",
+      "body": "Die bestellten Schuhe sind eine Nummer zu klein. Ich möchte sie gegen die nächste Größe umtauschen."
+    },
+    {
+      "id": "T047",
+      "category": "returns",
+      "subject": "Rückgabe nach Ablauf der Frist",
+      "body": "Ich habe den Artikel vor 35 Tagen erhalten und erst jetzt bemerkt, dass er nicht funktioniert. Ist eine Rückgabe trotzdem noch möglich?"
+    },
+    {
+      "id": "T048",
+      "category": "returns",
+      "subject": "Zubehör fehlt im Paket",
+      "body": "Beim Mixer, den ich erhalten habe, fehlt der Deckel. Ich möchte das Gerät zurückschicken und mein Geld zurückbekommen."
+    },
+    {
+      "id": "T049",
+      "category": "appointments",
+      "subject": "Beratungstermin verschieben",
+      "body": "Ich habe für Donnerstag um 10 Uhr einen Beratungstermin gebucht, kann aber leider nicht. Ist derselbe Termin auch am Freitag möglich?"
+    },
+    {
+      "id": "T050",
+      "category": "appointments",
+      "subject": "Termin für Produktvorführung gewünscht",
+      "body": "Wir möchten Ihre Software im Team vorgestellt bekommen. Welche Termine haben Sie in den nächsten zwei Wochen für eine Online-Demo frei?"
+    },
+    {
+      "id": "T051",
+      "category": "appointments",
+      "subject": "Keine Terminbestätigung erhalten",
+      "body": "Ich habe gestern online einen Termin für die Einrichtung gebucht, aber keine Bestätigungs-E-Mail bekommen. Ist der Termin trotzdem eingetragen?"
+    },
+    {
+      "id": "T052",
+      "category": "appointments",
+      "subject": "Termin absagen",
+      "body": "Ich muss meinen Schulungstermin am kommenden Montag leider absagen. Bitte tragen Sie mich aus und geben Sie den Platz frei."
+    },
+    {
+      "id": "T053",
+      "category": "appointments",
+      "subject": "Rückruf vereinbaren",
+      "body": "Ich hätte gerne einen Rückruf von Ihrem Support, am besten morgen zwischen 14 und 16 Uhr. Können Sie das einplanen?"
+    },
+    {
+      "id": "T054",
+      "category": "appointments",
+      "subject": "Termin für Techniker-Besuch",
+      "body": "Für die Installation vor Ort benötige ich einen Techniker. Wann wäre der nächste freie Termin in Hamburg?"
+    },
+    {
+      "id": "T055",
+      "category": "appointments",
+      "subject": "Erinnerung an falsche Uhrzeit",
+      "body": "Die Terminerinnerung, die ich bekommen habe, nennt 15 Uhr, gebucht hatte ich aber 13 Uhr. Welche Uhrzeit stimmt?"
+    },
+    {
+      "id": "T056",
+      "category": "appointments",
+      "subject": "Zweiten Teilnehmer zum Termin hinzufügen",
+      "body": "Zu unserem Onboarding-Termin am Mittwoch möchte ich noch eine Kollegin mitbringen. Können Sie sie zur Einladung hinzufügen?"
+    },
+    {
+      "id": "T057",
+      "category": "privacy",
+      "subject": "Auskunft über gespeicherte Daten",
+      "body": "Bitte teilen Sie mir gemäß DSGVO mit, welche personenbezogenen Daten Sie über mich gespeichert haben und zu welchem Zweck."
+    },
+    {
+      "id": "T058",
+      "category": "privacy",
+      "subject": "Newsletter ohne Einwilligung",
+      "body": "Ich erhalte seit Wochen Ihren Newsletter, obwohl ich mich nie dafür angemeldet habe. Woher haben Sie meine E-Mail-Adresse?"
+    },
+    {
+      "id": "T059",
+      "category": "privacy",
+      "subject": "Verdacht auf Datenleck",
+      "body": "Ich bekomme Phishing-Mails, die meinen Namen und meine Bestellnummer bei Ihnen enthalten. Wurden Kundendaten von Ihnen weitergegeben oder gestohlen?"
+    },
+    {
+      "id": "T060",
+      "category": "privacy",
+      "subject": "Widerruf der Einwilligung",
+      "body": "Hiermit widerrufe ich meine Einwilligung zur Nutzung meiner Daten für personalisierte Werbung. Bitte bestätigen Sie mir das schriftlich."
+    },
+    {
+      "id": "T061",
+      "category": "privacy",
+      "subject": "Fremde Daten in meinem Konto",
+      "body": "In meinem Kundenkonto werden mir Bestellungen und die Adresse einer anderen Person angezeigt. Das sollte doch nicht möglich sein?"
+    },
+    {
+      "id": "T062",
+      "category": "privacy",
+      "subject": "Auftragsverarbeitungsvertrag benötigt",
+      "body": "Unser Unternehmen benötigt vor der Nutzung Ihrer Software einen Vertrag zur Auftragsverarbeitung. Wer ist bei Ihnen dafür zuständig?"
+    },
+    {
+      "id": "T063",
+      "category": "privacy",
+      "subject": "Weitergabe an Dritte",
+      "body": "In Ihrer Datenschutzerklärung steht, dass Daten an Partner weitergegeben werden. Ich möchte wissen, an welche Firmen genau."
+    },
+    {
+      "id": "T064",
+      "category": "privacy",
+      "subject": "Berichtigung falscher Daten",
+      "body": "In Ihrem System ist mein Geburtsdatum falsch hinterlegt und ich kann es selbst nicht ändern. Bitte korrigieren Sie die Angabe."
     }
   ]
 }

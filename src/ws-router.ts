@@ -48,6 +48,7 @@ export function handleMessage(ctx: RouterContext): void {
         robotCondition,
         ticketIntervalMs: msg.params?.ticketIntervalMs,
         ticketJitter: msg.params?.ticketJitter,
+        categoryCount: msg.params?.categoryCount,
         sessionTimerMs: msg.params?.sessionTimerMs,
         ruleSchedule: msg.params?.ruleSchedule as RuleScheduleEntry[] | undefined,
         robotOverrides: msg.params?.robotOverrides,

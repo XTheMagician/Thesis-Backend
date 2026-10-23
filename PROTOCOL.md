@@ -64,7 +64,7 @@ echo cancellation is confirmed reliable on device.
 
 Client → server: `session:start` (`params: { participantId, taskCondition:
 easy|hard, robotCondition: talkative|quiet, ticketIntervalMs?, ticketJitter?,
-sessionTimerMs?, ruleSchedule?, robotOverrides?, demo? }`), `session:begin`,
+categoryCount?, sessionTimerMs?, ruleSchedule?, robotOverrides?, demo? }`), `session:begin`,
 `session:pause`, `session:resume`, `session:end`, `session:status`,
 `ticket:sort` (`ticketId`, `decision: ai|human`).
 
@@ -103,7 +103,19 @@ waits for the robot to be idle.
 
 Server → all: `session:started` (with `status: briefing`, `demo`),
 `session:taskStarted`, `session:paused`, `session:resumed`,
-`session:ended`, `session:poolExhausted`, `ticket:queued`, `ticket:sorted`,
+`session:ended`, `ticket:queued`, `ticket:sorted`,
 `rule:changed`, `session:status` (reply).
+
+`categoryCount` (`3` or `4`, default `4`) sets how many ticket categories
+each side starts with. With 4: KI gets software, shipping, general,
+appointments; human support gets accounting, hr, returns, privacy. With 3,
+appointments and privacy are left out. Only active categories appear in
+`rules` and the ticket pool, and rule-schedule entries for inactive
+categories are ignored. The robot's task knowledge lists the same set.
+
+The ticket pool never runs out: once every ticket has been dispatched it is
+reshuffled and repeated. Repeats carry a `#<round>` suffix on `id` (e.g.
+`T014#2`) so they stay unique in the queue; `sourceId` (and `ticketSourceId`
+in sort results) holds the original pool id.
 
 Errors are reported to the offending client as `{"type":"error","message":"…"}`.

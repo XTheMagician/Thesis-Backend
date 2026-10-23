@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import type { Ticket } from '../types';
+import type { Ticket, TicketCategory } from '../types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -13,7 +13,7 @@ const ticketData: TicketFile = JSON.parse(
   readFileSync(join(__dirname, '../../data/tickets.json'), 'utf-8'),
 );
 
-function shuffle<T>(arr: T[]): T[] {
+export function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -22,6 +22,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export function getTicketPool(): Ticket[] {
-  return shuffle(ticketData.tickets);
+/** Shuffled pool of all tickets in the session's active categories */
+export function getTicketPool(categories: TicketCategory[]): Ticket[] {
+  return shuffle(ticketData.tickets.filter((t) => categories.includes(t.category)));
 }
