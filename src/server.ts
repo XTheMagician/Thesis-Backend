@@ -8,12 +8,12 @@ import { DialogManager } from './robot/dialog-manager';
 import { SpeechScheduler } from './robot/scheduler';
 import { handleMessage } from './ws-router';
 import { BRIEFING_TOOLS } from './config/conditions';
-import { existsSync } from 'fs';
 import { getJsonlExportPath, listLoggedSessions } from './logger';
 import {
   ALL_EXPORT_FILE,
   participantExportPath,
   regenerateAllExports,
+  regenerateExportsForParticipant,
   computeAnalysis,
 } from './export';
 
@@ -58,28 +58,12 @@ app.get('/export/participants', (_req, res) => {
   res.json({ participants: computeAnalysis().participantIds });
 });
 
-// Recompute every analysis file from the JSONL logs ("Auswertung exportieren")
-app.options('/export/rebuild', (_req, res) => {
-  allowCors(res);
-  res.setHeader('Access-Control-Allow-Methods', 'POST');
-  res.sendStatus(204);
-});
-
-app.post('/export/rebuild', async (_req, res) => {
-  allowCors(res);
-  try {
-    const { participantIds } = await regenerateAllExports();
-    res.json({ ok: true, participants: participantIds });
-  } catch (err) {
-    console.error('[Server] Export rebuild failed:', err);
-    res.status(500).json({ error: 'Export rebuild failed.' });
-  }
-});
-
-// Download the aggregate analysis (all sessions / participants)
+// Download the aggregate analysis (all sessions / participants). Recomputed
+// from the JSONL logs on each request so the download is always current, even
+// after a restart or a manual change to the logs.
 app.get('/export/all', async (_req, res) => {
   try {
-    if (!existsSync(ALL_EXPORT_FILE)) await regenerateAllExports();
+    await regenerateAllExports();
     res.download(ALL_EXPORT_FILE, 'all.xlsx');
   } catch (err) {
     console.error('[Server] Export (all) failed:', err);
@@ -87,16 +71,15 @@ app.get('/export/all', async (_req, res) => {
   }
 });
 
-// Download one participant's analysis file
+// Download one participant's analysis file (recomputed on request, see above)
 app.get('/export/participant/:participantId', async (req, res) => {
   const { participantId } = req.params;
   try {
-    const filePath = participantExportPath(participantId);
-    if (!existsSync(filePath)) await regenerateAllExports();
-    if (!existsSync(filePath)) {
+    if (!computeAnalysis().participantIds.includes(participantId)) {
       return void res.status(404).json({ error: 'No data for this participant.' });
     }
-    res.download(filePath, `${participantId}.xlsx`);
+    await regenerateExportsForParticipant(participantId);
+    res.download(participantExportPath(participantId), `${participantId}.xlsx`);
   } catch (err) {
     console.error('[Server] Export (participant) failed:', err);
     res.status(500).json({ error: 'Export failed.' });
