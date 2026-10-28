@@ -88,7 +88,7 @@ timing (ticket dispatch, rule schedule, session timer) counts from.
 
 `demo: true` skips the briefing and the voice session entirely — the task
 starts immediately (`trigger: "demo"`) and the robot stays silent. Demo runs
-are not logged at all (no CSV/JSONL, no `summary.csv` row); `participantId` is
+are not logged at all (no JSONL log, no export); `participantId` is
 optional for them. Their session IDs carry a `-demo-` tag.
 
 `robotOverrides` (`{ voice?, voiceStyle?, smallTalkFirstAfterSec?,

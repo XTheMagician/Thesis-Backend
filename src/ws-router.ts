@@ -51,6 +51,7 @@ export function handleMessage(ctx: RouterContext): void {
         categoryCount: msg.params?.categoryCount,
         sessionTimerMs: msg.params?.sessionTimerMs,
         ruleSchedule: msg.params?.ruleSchedule as RuleScheduleEntry[] | undefined,
+        rulePresetId: msg.params?.rulePresetId,
         robotOverrides: msg.params?.robotOverrides,
         demo,
       });
@@ -92,7 +93,7 @@ export function handleMessage(ctx: RouterContext): void {
     }
 
     case 'session:end': {
-      const result = orchestrator.endSession();
+      const result = orchestrator.endSession('aborted');
       if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
       break;
     }

@@ -152,6 +152,9 @@ export interface SessionStartMessage {
     categoryCount?: number;
     sessionTimerMs?: number;
     ruleSchedule?: RuleScheduleEntry[];
+    /** Identifier of the rule plan the admin selected (built-in name, saved
+     *  preset name, or "custom"); "none" for easy runs. Logged in taskConfig. */
+    rulePresetId?: string;
     robotOverrides?: RobotOverrides;
     /** Demo run: no briefing and no voice session, the task starts at once */
     demo?: boolean;

@@ -32,7 +32,13 @@ import type { RobotConfig, RobotState } from '../types';
 //    reported via onInterruptionIgnored (participant error, logged).   //
 // ------------------------------------------------------------------ //
 
-export type SpeechSource = 'admin' | 'briefing' | 'scheduler' | 'task-event';
+// Every injected speech request carries its source so each actually-spoken
+// robot utterance is attributable in the log: 'smalltalk' is the proactive
+// talkativeness manipulation (counted as robotSmalltalkCount), 'progress' the
+// periodic work reports, 'task-event' rule announcements, plus 'briefing' and
+// manual 'admin' lines. Provider-initiated answers to the participant carry no
+// request — they are reported separately via onReply (source "reply").
+export type SpeechSource = 'admin' | 'briefing' | 'smalltalk' | 'progress' | 'task-event';
 
 export interface SpeechRequest {
   text: string;
@@ -92,6 +98,9 @@ export class DialogManager {
     waitedMs?: number,
   ) => void;
   onInterruptionIgnored?: (request: SpeechRequest) => void;
+  /** A provider-initiated utterance (an answer to the participant, not a
+   *  queued speech request) just started playing — logged as source "reply". */
+  onReply?: () => void;
   /** The model called one of the tools passed to startVoice(); the return
    *  value is sent back to the model as the call's result */
   onToolCall?: (name: string) => object;
@@ -239,6 +248,9 @@ export class DialogManager {
         if (this.state !== 'speaking') {
           this.utteranceBytes = 0;
           this.utteranceStartedAt = Date.now();
+          // No currentSpeech backing this audio: the provider started the
+          // response itself after the participant spoke — a reply.
+          if (!this.currentSpeech) this.onReply?.();
           this.hub.sendTo('unity', { type: 'robot:speech:start' });
           this.transition('speaking', 'provider:audioStart');
         }

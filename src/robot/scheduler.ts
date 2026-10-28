@@ -110,7 +110,7 @@ export class SpeechScheduler implements Subsystem {
     this.dialog.requestSpeech({
       text: topic,
       mode: 'prompt',
-      source: 'scheduler',
+      source: 'smalltalk',
       priority: 'normal',
       ttlMs: SMALL_TALK_TTL_MS,
     });
@@ -129,7 +129,7 @@ export class SpeechScheduler implements Subsystem {
     this.dialog.requestSpeech({
       text: progressReport(assigned, correctlyAssigned),
       mode: 'verbatim',
-      source: 'scheduler',
+      source: 'progress',
       priority: 'normal',
       ttlMs: PROGRESS_TTL_MS,
     });

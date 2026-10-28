@@ -2,7 +2,9 @@ import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
 import { activeCategories, DEFAULT_CATEGORY_COUNT, isCategoryCount } from './task/categories';
 import { BRIEFING_START_TOOL, resolveRobotConfig } from './config/conditions';
-import { logEvent, logRobotEvent, logSessionSummary, closeSession, type LogMeta } from './logger';
+import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
+import { APP_VERSION, LOG_SCHEMA_VERSION, LOG_USER_TRANSCRIPT_TEXT } from './config/study';
+import { regenerateExportsForParticipant } from './export';
 import type { Hub } from './hub';
 import type { DialogManager } from './robot/dialog-manager';
 import type {
@@ -40,12 +42,21 @@ export interface StartParams {
   categoryCount?: number;
   sessionTimerMs?: number;
   ruleSchedule?: RuleScheduleEntry[];
+  rulePresetId?: string;
   robotOverrides?: RobotOverrides;
   demo?: boolean;
 }
 
 /** What ended the briefing: the robot's start tool, the admin panel, or a demo run (no briefing). */
 export type TaskStartTrigger = 'robot' | 'admin' | 'demo';
+
+/**
+ * Why a session ended, recorded in session:ended.
+ * - timeout: the session timer elapsed (a regular, "completed" run)
+ * - aborted: ended manually from the admin panel
+ * - error:   any other teardown (e.g. server shutdown mid-session)
+ */
+export type EndReason = 'timeout' | 'aborted' | 'error';
 
 type Result<T = undefined> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -63,6 +74,9 @@ export class Orchestrator {
   // the robot's latest briefing line — the model sometimes calls it in
   // place of speaking the "Bist du bereit?" line itself
   private participantSpokeSinceBriefingLine = false;
+  // When the robot entered 'listening', i.e. the participant started speaking;
+  // used to emit user:utterance with a backend-clock start/end on the way out
+  private listenStartedAt: number | null = null;
 
   constructor(private hub: Hub, private dialog: DialogManager) {
     this.wireRobotLogging();
@@ -85,19 +99,49 @@ export class Orchestrator {
       this.activeSession && !this.activeSession.demo ? this.logMeta(this.activeSession) : null;
 
     this.dialog.onTransition = (from, to, reason) => {
+      const now = Date.now();
       // VAD speech start: arrives before the response it triggers, unlike
       // the (asynchronous) input transcript
-      if (to === 'listening') this.participantSpokeSinceBriefingLine = true;
+      if (to === 'listening') {
+        this.participantSpokeSinceBriefingLine = true;
+        this.listenStartedAt = now;
+      }
       const m = meta();
       if (m) logRobotEvent(m, 'robot:state', { from, to, reason });
+      // Leaving 'listening' closes a participant utterance. Timestamps come
+      // from the backend clock, so the text is never needed to measure it.
+      if (from === 'listening' && this.listenStartedAt != null) {
+        const startedAt = this.listenStartedAt;
+        this.listenStartedAt = null;
+        if (m) {
+          logRobotEvent(m, 'user:utterance', {
+            startedAt: new Date(startedAt).toISOString(),
+            endedAt: new Date(now).toISOString(),
+            durationMs: now - startedAt,
+          });
+        }
+      }
     };
 
     // Injected lines are skipped here: the 'fired' speech request below
-    // records the same content with structured fields.
+    // records the same content with structured fields. The participant's
+    // transcribed text is only logged when LOG_USER_TRANSCRIPT_TEXT is on;
+    // the event itself (and its timing via user:utterance) is always kept.
     this.dialog.onTranscript = (role, text) => {
       const m = meta();
-      if (m && role !== 'injected') logRobotEvent(m, 'robot:transcript', { role, text });
+      if (m && role !== 'injected') {
+        const fields = role === 'user' && !LOG_USER_TRANSCRIPT_TEXT ? { role } : { role, text };
+        logRobotEvent(m, 'robot:transcript', fields);
+      }
       if (role === 'user') this.continueBriefing();
+    };
+
+    // A reply the provider generated on its own after the participant spoke
+    // (no speech request behind it) — tagged so every spoken robot utterance
+    // is attributable to a source.
+    this.dialog.onReply = () => {
+      const m = meta();
+      if (m) logRobotEvent(m, 'robot:reply', { source: 'reply' });
     };
 
     this.dialog.onSpeechRequest = (request, disposition, waitedMs) => {
@@ -183,9 +227,25 @@ export class Orchestrator {
     });
     this.activeSession = session;
 
-    // The resolved robot config goes into the log so every session records
-    // the exact treatment the participant received.
-    this.log(session, 'session:started', { robotConfig, categoryCount });
+    // Resolved task parameters as actually used this session (after admin
+    // overrides and env defaults) — the export reads these, not the defaults.
+    const taskConfig = {
+      taskCondition: session.taskCondition,
+      ticketIntervalMs: session.ticketIntervalMs,
+      ticketJitter: session.ticketJitter,
+      durationMs: session.sessionTimerMs,
+      rulePresetId: params.rulePresetId ?? (session.taskCondition === 'easy' ? 'none' : 'custom'),
+      categoryCount: session.categoryCount,
+    };
+
+    // The resolved robot config and task config go into the log so every
+    // session records the exact treatment the participant received.
+    this.log(session, 'session:started', {
+      schemaVersion: LOG_SCHEMA_VERSION,
+      appVersion: APP_VERSION,
+      taskConfig,
+      robotConfig,
+    });
 
     this.hub.broadcast({
       type: 'session:started',
@@ -314,7 +374,7 @@ export class Orchestrator {
     return { ok: true, value: undefined };
   }
 
-  endSession(): Result {
+  endSession(reason: EndReason = 'aborted'): Result {
     const session = this.activeSession;
     if (!session || session.status === 'ended') {
       return { ok: false, error: 'No active session.' };
@@ -326,6 +386,7 @@ export class Orchestrator {
     const accuracy = computeAccuracy(session.stats.correct, session.stats.total);
 
     this.log(session, 'session:ended', {
+      endReason: reason,
       totalProcessed: session.stats.total,
       totalCorrect: session.stats.correct,
       totalWrong: session.stats.wrong,
@@ -333,25 +394,31 @@ export class Orchestrator {
       sessionDurationMs: session.duration ?? undefined,
     });
 
-    // Demo runs are not logged — no summary row either
-    if (!session.demo) {
-      logSessionSummary(this.logMeta(session), {
-        totalCorrect: session.stats.correct,
-        totalWrong: session.stats.wrong,
-      });
-    }
-
-    closeSession(session.id);
+    const demo = session.demo;
+    const participantId = session.participantId;
 
     this.hub.broadcast({
       type: 'session:ended',
       sessionId: session.id,
+      endReason: reason,
       stats: { ...session.stats, accuracy },
       durationMs: session.duration,
     });
 
     this.activeSession = null;
-    console.log(`[Session] Ended: ${session.id}`);
+    console.log(`[Session] Ended (${reason}): ${session.id}`);
+
+    // Flush the JSONL, then rebuild this participant's xlsx and the aggregate
+    // from the raw logs. Fire-and-forget: a failing export must never affect
+    // the (already finished) session or the logging. Demo runs are not logged.
+    if (!demo) {
+      void closeSession(session.id)
+        .then(() => regenerateExportsForParticipant(participantId))
+        .catch((err) => console.error('[Orchestrator] Export after session end failed:', err));
+    } else {
+      void closeSession(session.id);
+    }
+
     return { ok: true, value: undefined };
   }
 
@@ -466,7 +533,7 @@ export class Orchestrator {
         break;
 
       case 'timerExpired':
-        this.endSession();
+        this.endSession('timeout');
         console.log(`[Session] Timer expired — ended: ${session.id}`);
         break;
     }

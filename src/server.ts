@@ -8,14 +8,14 @@ import { DialogManager } from './robot/dialog-manager';
 import { SpeechScheduler } from './robot/scheduler';
 import { handleMessage } from './ws-router';
 import { BRIEFING_TOOLS } from './config/conditions';
+import { existsSync } from 'fs';
+import { getJsonlExportPath, listLoggedSessions } from './logger';
 import {
-  getExportPath,
-  getJsonlExportPath,
-  getAllExportCsv,
-  listLoggedSessions,
-  getSummaryExportPath,
-  deleteSessionSummary,
-} from './logger';
+  ALL_EXPORT_FILE,
+  participantExportPath,
+  regenerateAllExports,
+  computeAnalysis,
+} from './export';
 
 dotenv.config();
 
@@ -36,57 +36,71 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// The admin panel fetches these from the Vite dev origin — allow CORS.
+const allowCors = (res: express.Response) => res.setHeader('Access-Control-Allow-Origin', '*');
+
 // List all logged sessions (newest first) — the admin panel's export block.
-// CORS header because the panel fetches this from the Vite dev origin.
 app.get('/sessions', (_req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  allowCors(res);
   res.json({ sessions: listLoggedSessions() });
 });
 
-// Download a session's CSV log
-app.get('/export/:sessionId', (req, res) => {
-  const filePath = getExportPath(req.params.sessionId);
-  if (!filePath) return void res.status(404).json({ error: 'Session log not found.' });
-  res.download(filePath);
-});
-
-// Download all sessions as a single combined CSV
-app.get('/export-all', (_req, res) => {
-  const csv = getAllExportCsv();
-  if (!csv) return void res.status(404).json({ error: 'No session logs found.' });
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="all-sessions.csv"');
-  res.send(csv);
-});
-
-// Download a session's full JSONL event log
+// Download a session's raw JSONL event log (the single source of truth)
 app.get('/export-jsonl/:sessionId', (req, res) => {
   const filePath = getJsonlExportPath(req.params.sessionId);
   if (!filePath) return void res.status(404).json({ error: 'Session log not found.' });
   res.download(filePath);
 });
 
-// Download the shortform summary — one line per session, for stats software
-app.get('/export-summary', (_req, res) => {
-  const filePath = getSummaryExportPath();
-  if (!filePath) return void res.status(404).json({ error: 'No session summaries found.' });
-  res.download(filePath, 'summary.csv');
+// List the participants that appear in the logs — for the export UI
+app.get('/export/participants', (_req, res) => {
+  allowCors(res);
+  res.json({ participants: computeAnalysis().participantIds });
 });
 
-// Discard a botched trial's row from the summary (its CSV/JSONL logs are
-// kept). Needs CORS since the admin panel calls this via fetch, not a
-// plain navigation like the downloads above.
-app.options('/export-summary/:sessionId', (_req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'DELETE');
+// Recompute every analysis file from the JSONL logs ("Auswertung exportieren")
+app.options('/export/rebuild', (_req, res) => {
+  allowCors(res);
+  res.setHeader('Access-Control-Allow-Methods', 'POST');
   res.sendStatus(204);
 });
 
-app.delete('/export-summary/:sessionId', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const removed = deleteSessionSummary(req.params.sessionId);
-  if (!removed) return void res.status(404).json({ error: 'Session not found in summary.' });
-  res.json({ ok: true });
+app.post('/export/rebuild', async (_req, res) => {
+  allowCors(res);
+  try {
+    const { participantIds } = await regenerateAllExports();
+    res.json({ ok: true, participants: participantIds });
+  } catch (err) {
+    console.error('[Server] Export rebuild failed:', err);
+    res.status(500).json({ error: 'Export rebuild failed.' });
+  }
+});
+
+// Download the aggregate analysis (all sessions / participants)
+app.get('/export/all', async (_req, res) => {
+  try {
+    if (!existsSync(ALL_EXPORT_FILE)) await regenerateAllExports();
+    res.download(ALL_EXPORT_FILE, 'all.xlsx');
+  } catch (err) {
+    console.error('[Server] Export (all) failed:', err);
+    res.status(500).json({ error: 'Export failed.' });
+  }
+});
+
+// Download one participant's analysis file
+app.get('/export/participant/:participantId', async (req, res) => {
+  const { participantId } = req.params;
+  try {
+    const filePath = participantExportPath(participantId);
+    if (!existsSync(filePath)) await regenerateAllExports();
+    if (!existsSync(filePath)) {
+      return void res.status(404).json({ error: 'No data for this participant.' });
+    }
+    res.download(filePath, `${participantId}.xlsx`);
+  } catch (err) {
+    console.error('[Server] Export (participant) failed:', err);
+    res.status(500).json({ error: 'Export failed.' });
+  }
 });
 
 const httpServer = createServer(app);
@@ -119,8 +133,24 @@ orchestrator.register(new SpeechScheduler(dialog));
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] Listening on port ${PORT} (all interfaces)`);
   console.log(`[Server] Health: http://localhost:${PORT}/health`);
-  console.log(`[Server] Export CSV: http://localhost:${PORT}/export/<sessionId>`);
-  console.log(`[Server] Export all CSV: http://localhost:${PORT}/export-all`);
-  console.log(`[Server] Export JSONL: http://localhost:${PORT}/export-jsonl/<sessionId>`);
-  console.log(`[Server] Export summary: http://localhost:${PORT}/export-summary`);
+  console.log(`[Server] Raw log (JSONL): http://localhost:${PORT}/export-jsonl/<sessionId>`);
+  console.log(`[Server] Analysis (all):  http://localhost:${PORT}/export/all`);
+  console.log(`[Server] Analysis (one):  http://localhost:${PORT}/export/participant/<participantId>`);
 });
+
+// Give an active session a session:ended (endReason "error") on shutdown, so a
+// Ctrl-C mid-run still produces a closed JSONL log rather than a dangling one.
+let shuttingDown = false;
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    orchestrator.endSession('error');
+  } catch (err) {
+    console.error('[Server] Error ending session on shutdown:', err);
+  }
+  // Allow the JSONL flush / export kicked off by endSession to run briefly
+  setTimeout(() => process.exit(0), 500);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

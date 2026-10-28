@@ -1,5 +1,6 @@
 node_modules/
 logs/
+exports/
 .env
 
 # npm lockfile — this project uses pnpm (pnpm-lock.yaml)
