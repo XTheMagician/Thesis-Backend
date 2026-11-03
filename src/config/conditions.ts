@@ -28,18 +28,19 @@ export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
 // ------------------------------------------------------------------ //
 //  Briefing — the robot explains the task before any ticket arrives.  //
-//  The opener is injected verbatim once the voice session is up, so    //
-//  every participant in a condition hears the same first line. The     //
-//  talkative explanation is injected verbatim too, after the           //
-//  participant's first reply (their name); everything else follows     //
-//  the condition's briefing rule in the system prompt.                 //
+//  The whole briefing is injected verbatim once the voice session is   //
+//  up, so every participant in a condition hears the same text. The    //
+//  participant's mic stays off until its last piece ("Bist du          //
+//  bereit?"), so nobody can interrupt it; what follows is up to the    //
+//  condition's briefing rule in the system prompt.                     //
 //  When the participant says they are ready, the model calls the       //
 //  start tool (BRIEFING_START_TOOL), the orchestrator starts the task  //
 //  and the robot says the condition's start line verbatim.             //
 //                                                                      //
 //  Both conditions convey the same task information; only the social   //
-//  layer differs. Talkative: greeting, names, small exchange. Quiet:   //
-//  no greeting, no names, a single factual line.                       //
+//  layer differs. Talkative: greeting, friendly wording, and the name  //
+//  is asked shortly after the task has started. Quiet: no greeting, no //
+//  names, factual wording.                                             //
 // ------------------------------------------------------------------ //
 
 export const BRIEFING_START_TOOL = 'aufgabe_starten';
@@ -66,35 +67,43 @@ const BRIEFING_TOOL_RULE =
 
 // --- Talkative ---------------------------------------------------- //
 
+// Greeting and explanation in one go; the dialog manager splits it into pieces
 const TALKATIVE_BRIEFING_OPENER =
-  'Hi, ich bin Roni. Sieht so aus als arbeiten wir heute zusammen. Wie ist dein Name?';
-
-const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
-
-// Injected verbatim after the participant's first reply, i.e. after the
-// model's own "schöner Name" line; the dialog manager splits it into pieces
-const TALKATIVE_BRIEFING_EXPLANATION =
-  'Also, unsere Aufgabe ist gar nicht so schwer. Wir arbeiten gemeinsam Kundensupport-Tickets ab. ' +
+  'Hi, ich bin Roni. Sieht so aus als arbeiten wir heute zusammen. ' +
+  'Unsere Aufgabe ist gar nicht so schwer. Wir arbeiten gemeinsam Kundensupport-Tickets ab. ' +
   'Du musst für jedes Ticket anhand seiner Kategorie entscheiden, ob ich, eine KI, das erledigen kann, ' +
   'oder ob es dazu menschlichen Support braucht. Es kann vorkommen, dass sich meine Fähigkeiten, ' +
   'bestimmte Tickets zu verarbeiten, im Laufe der Aufgabe ändern, das teile ich dir aber mit. ' +
   'Wenn du nicht weiter weißt oder eine Frage hast, melde dich einfach bei mir. Bist du bereit?';
+
+const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
+
+// Asked once the task is running instead of during the briefing (the mic
+// is off there); the reply to the answer is scripted in NAME_RULE
+const TALKATIVE_NAME_QUESTION = 'Ach, ich habe dich noch gar nicht gefragt: Wie heißt du eigentlich?';
+const TALKATIVE_NAME_QUESTION_AFTER_SEC = 15;
 
 // Overrides the condition's behaviour rules for the briefing only
 const TALKATIVE_BRIEFING_RULE =
   '\n\nEinführung (vor Beginn der Aufgabe):\n' +
   'Die Sitzung beginnt mit einer Einführung. Sie gilt für dich unabhängig von allen anderen Verhaltensregeln ' +
   'und läuft genau so ab:\n' +
-  '1. Du stellst dich per "[SYSTEM: VERBATIM]" vor und fragst nach dem Namen.\n' +
-  '2. Sobald der Teilnehmer seinen Namen genannt hat, sagst du wortwörtlich nur: ' +
-  '"Oh, das ist aber ein schöner Name." Die Erklärung der Aufgabe erhältst du danach per "[SYSTEM: VERBATIM]"; ' +
-  'erkläre die Aufgabe nicht von dir aus. Die Frage "Bist du bereit?" ist Teil dieser Erklärung.\n' +
-  '3. Bestätigt der Teilnehmer, dass er bereit ist, rufst du sofort die Funktion "' + BRIEFING_START_TOOL + '" auf ' +
+  '1. Du stellst dich per "[SYSTEM: VERBATIM]" vor und erklärst die Aufgabe; die Erklärung endet mit der ' +
+  'Frage "Bist du bereit?". Erkläre die Aufgabe nicht von dir aus und frage in der Einführung nicht nach ' +
+  'dem Namen des Teilnehmers.\n' +
+  '2. Bestätigt der Teilnehmer, dass er bereit ist, rufst du sofort die Funktion "' + BRIEFING_START_TOOL + '" auf ' +
   'und sagst selbst nichts weiter.\n' +
-  '4. Hat der Teilnehmer stattdessen Fragen oder ist unsicher, beantwortest du seine Fragen kurz und freundlich ' +
+  '3. Hat der Teilnehmer stattdessen Fragen oder ist unsicher, beantwortest du seine Fragen kurz und freundlich ' +
   'mithilfe des Aufgabenwissens unten und fragst danach erneut: "Bist du bereit?"\n' +
   BRIEFING_PIECES_RULE +
   BRIEFING_TOOL_RULE;
+
+// The name question comes per "[SYSTEM: VERBATIM]" once the task runs
+const TALKATIVE_NAME_RULE =
+  '\n\nName des Teilnehmers:\n' +
+  'Kurz nach Beginn der Aufgabe fragst du per "[SYSTEM: VERBATIM]" nach dem Namen des Teilnehmers. ' +
+  'Sobald er seinen Namen genannt hat, sagst du wortwörtlich nur: "Oh, das ist aber ein schöner Name." ' +
+  'Danach darfst du ihn mit seinem Namen ansprechen.';
 
 // --- Quiet -------------------------------------------------------- //
 
@@ -203,6 +212,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         'Input “[SYSTEM: PROMPT] Das Wetter heute"\n' +
         'Antwort: “Wie ist das Wetter heute? Habe gehört nächste Woche soll es windig werden.”' +
         TALKATIVE_BRIEFING_RULE +
+        TALKATIVE_NAME_RULE +
         TASK_KNOWLEDGE +
         LANGUAGE_RULE,
     responseLength: 'long',
@@ -210,7 +220,6 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     voiceStyle: DEFAULT_VOICE_STYLE,
 
     briefingOpener: TALKATIVE_BRIEFING_OPENER,
-    briefingExplanation: TALKATIVE_BRIEFING_EXPLANATION,
     briefingStartLine: TALKATIVE_BRIEFING_START_LINE,
 
     smallTalkEnabled: true,
@@ -218,6 +227,8 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.3,
     smallTalkTopics: SMALL_TALK_TOPICS,
+    nameQuestion: TALKATIVE_NAME_QUESTION,
+    nameQuestionAfterSec: TALKATIVE_NAME_QUESTION_AFTER_SEC,
 
     progressReportsEnabled: true,
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
@@ -259,8 +270,6 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     voiceStyle: DEFAULT_VOICE_STYLE,
 
     briefingOpener: QUIET_BRIEFING_OPENER,
-    // The quiet opener already contains the explanation
-    briefingExplanation: '',
     briefingStartLine: QUIET_BRIEFING_START_LINE,
 
     smallTalkEnabled: false,
@@ -268,6 +277,9 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.3,
     smallTalkTopics: SMALL_TALK_TOPICS,
+    // No names in the quiet condition
+    nameQuestion: '',
+    nameQuestionAfterSec: 0,
 
     progressReportsEnabled: true,
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,

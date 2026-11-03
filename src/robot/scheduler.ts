@@ -13,6 +13,8 @@ import type { Session } from '../task/session';
 //  - small talk (talkative condition only): each impulse opens a       //
 //    conversation about the next topic from a per-session shuffled     //
 //    deck — each topic is used at most once per session                //
+//  - name question (talkative only): asked once, shortly after the     //
+//    task starts — the briefing doesn't ask, the mic is off there      //
 //  - progress reports (both conditions): the robot-as-AI-agent         //
 //    reports on the tickets assigned to it, using live session stats   //
 //    read at fire time so the numbers are always current. Spoken       //
@@ -30,6 +32,7 @@ import type { Session } from '../task/session';
 // ------------------------------------------------------------------ //
 
 const SMALL_TALK_TTL_MS = 30_000;
+const NAME_QUESTION_TTL_MS = 60_000;
 const PROGRESS_TTL_MS = 45_000;
 // Re-check cadence while a due impulse waits for the conversation to end
 const QUIET_POLL_MS = 1000;
@@ -80,6 +83,21 @@ export class SpeechScheduler implements Subsystem {
     const config = this.session?.robotConfig;
     if (!config) return;
 
+    // Only at the very start of the task, not again after a pause
+    if (initial && config.nameQuestion) {
+      const question = config.nameQuestion;
+      this.after(Math.max(5000, Math.round(config.nameQuestionAfterSec * 1000)), () =>
+        this.whenQuiet(0, () =>
+          this.dialog.requestSpeech({
+            text: question,
+            mode: 'verbatim',
+            source: 'smalltalk',
+            priority: 'normal',
+            ttlMs: NAME_QUESTION_TTL_MS,
+          }),
+        ),
+      );
+    }
     if (config.smallTalkEnabled && config.smallTalkTopics.length > 0) {
       this.scheduleRecurring(
         initial ? config.smallTalkFirstAfterSec : config.smallTalkIntervalSec,
@@ -158,21 +176,31 @@ export class SpeechScheduler implements Subsystem {
       return Math.max(5000, Math.round(base + offset));
     };
 
-    const attempt = (dueAt: number) => {
-      if (!this.session || this.session.status !== 'running') return;
-      const waitMs = this.quietWaitMs();
-      if (waitMs > 0) {
-        if (dueAt === 0) dueAt = Date.now();
-        this.after(Math.max(QUIET_POLL_MS, waitMs), () => attempt(dueAt));
-        return;
-      }
-      if (dueAt > 0) {
-        console.log(`[Scheduler] impulse deferred ${Date.now() - dueAt}ms until the conversation went quiet`);
-      }
-      fire();
-      this.after(jitteredMs(), () => attempt(0));
-    };
-    this.after(Math.max(5000, Math.round(firstDelaySec * 1000)), () => attempt(0));
+    const attempt = () =>
+      this.whenQuiet(0, () => {
+        fire();
+        this.after(jitteredMs(), attempt);
+      });
+    this.after(Math.max(5000, Math.round(firstDelaySec * 1000)), attempt);
+  }
+
+  /**
+   * Run fire() once the conversation has been quiet long enough; until then
+   * re-check instead of dropping the impulse. dueAt is when it first became
+   * due (0 = now), for the deferral log line.
+   */
+  private whenQuiet(dueAt: number, fire: () => void): void {
+    if (!this.session || this.session.status !== 'running') return;
+    const waitMs = this.quietWaitMs();
+    if (waitMs > 0) {
+      const due = dueAt || Date.now();
+      this.after(Math.max(QUIET_POLL_MS, waitMs), () => this.whenQuiet(due, fire));
+      return;
+    }
+    if (dueAt > 0) {
+      console.log(`[Scheduler] impulse deferred ${Date.now() - dueAt}ms until the conversation went quiet`);
+    }
+    fire();
   }
 
   /**

@@ -37,12 +37,10 @@ export interface RobotConfig {
   /** Speaking-style prompt, appended to the system prompt at connect time */
   voiceStyle: string;
 
-  /** Briefing — spoken verbatim when the voice session is up; the rest of
-   *  the introduction is scripted in the system prompt. Tickets and timers
-   *  only start once the participant confirms they are ready. */
+  /** Briefing — spoken verbatim in one go when the voice session is up,
+   *  ending in "Bist du bereit?". The participant's mic stays off until that
+   *  last piece; tickets and timers only start once they confirm. */
   briefingOpener: string;
-  /** Spoken verbatim after the participant's first reply; empty = none */
-  briefingExplanation: string;
   /** Spoken verbatim once the briefing ends, before the first ticket */
   briefingStartLine: string;
 
@@ -53,6 +51,10 @@ export interface RobotConfig {
   smallTalkIntervalSec: number;
   smallTalkJitter: number; // 0..1, interval randomization like ticketJitter
   smallTalkTopics: string[];
+  /** Asked verbatim once, this long after the task starts (once the
+   *  conversation is quiet); empty = never asked */
+  nameQuestion: string;
+  nameQuestionAfterSec: number;
 
   /** Progress reports — task-relevant, active in both conditions */
   progressReportsEnabled: boolean;

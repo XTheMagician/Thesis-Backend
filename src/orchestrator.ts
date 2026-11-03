@@ -6,7 +6,7 @@ import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
 import { APP_VERSION, LOG_SCHEMA_VERSION, LOG_USER_TRANSCRIPT_TEXT } from './config/study';
 import { regenerateExportsForParticipant } from './export';
 import type { Hub } from './hub';
-import type { DialogManager } from './robot/dialog-manager';
+import { splitForSpeech, type DialogManager } from './robot/dialog-manager';
 import type {
   Decision,
   RobotCondition,
@@ -68,8 +68,6 @@ type Result<T = undefined> = { ok: true; value: T } | { ok: false; error: string
 export class Orchestrator {
   private activeSession: Session | null = null;
   private subsystems: Subsystem[] = [];
-  // Talkative briefing: the explanation follows the participant's first reply
-  private briefingExplanationPending = false;
   // The start tool is only honoured once the participant has spoken after
   // the robot's latest briefing line — the model sometimes calls it in
   // place of speaking the "Bist du bereit?" line itself
@@ -133,7 +131,6 @@ export class Orchestrator {
         const fields = role === 'user' && !LOG_USER_TRANSCRIPT_TEXT ? { role } : { role, text };
         logRobotEvent(m, 'robot:transcript', fields);
       }
-      if (role === 'user') this.continueBriefing();
     };
 
     // A reply the provider generated on its own after the participant spoke
@@ -145,7 +142,15 @@ export class Orchestrator {
     };
 
     this.dialog.onSpeechRequest = (request, disposition, waitedMs) => {
-      if (request.source === 'briefing' && disposition === 'fired') this.participantSpokeSinceBriefingLine = false;
+      if (request.source === 'briefing' && disposition === 'fired') {
+        this.participantSpokeSinceBriefingLine = false;
+        // The last piece of the briefing (ending in "Bist du bereit?") is
+        // starting — from now on the robot listens for the answer
+        const session = this.activeSession;
+        if (session?.status === 'briefing' && request.text === splitForSpeech(session.robotConfig.briefingOpener).at(-1)) {
+          this.setBriefingMic(true);
+        }
+      }
       const m = meta();
       if (m) {
         logRobotEvent(m, 'robot:speech:request', {
@@ -171,16 +176,31 @@ export class Orchestrator {
     this.dialog.onToolCall = (name) => {
       if (name !== BRIEFING_START_TOOL) return { ok: false, error: `Unbekannte Funktion "${name}".` };
 
-      // Premature call — the dialog manager retries the verbatim line the
-      // model skipped, and the result tells the model to wait for the answer
-      if (this.activeSession?.status === 'briefing' && !this.participantSpokeSinceBriefingLine) {
-        console.log(`[Session] rejected ${name}: participant has not answered yet`);
-        const m = meta();
-        if (m) logRobotEvent(m, 'robot:tool:rejected', { name, reason: 'participant has not answered yet' });
-        return {
-          ok: false,
-          error: 'Der Teilnehmer hat noch nicht geantwortet. Die Aufgabe startet erst, wenn er bestätigt, dass er bereit ist.',
-        };
+      if (this.activeSession?.status === 'briefing') {
+        // The scripted briefing is not over yet: some of its pieces are still
+        // queued or playing. Otherwise a stray reply could start the task —
+        // and the tickets — before "Bist du bereit?" was even asked.
+        if (this.dialog.hasQueuedSpeech('briefing') || !this.dialog.isMicEnabled) {
+          console.log(`[Session] rejected ${name}: briefing not finished yet`);
+          const m = meta();
+          if (m) logRobotEvent(m, 'robot:tool:rejected', { name, reason: 'briefing not finished yet' });
+          return {
+            ok: false,
+            error: 'Die Einführung ist noch nicht beendet. Die Aufgabe startet erst, wenn du die Erklärung vollständig gesprochen hast und der Teilnehmer bestätigt, dass er bereit ist.',
+          };
+        }
+
+        // Premature call — the dialog manager retries the verbatim line the
+        // model skipped, and the result tells the model to wait for the answer
+        if (!this.participantSpokeSinceBriefingLine) {
+          console.log(`[Session] rejected ${name}: participant has not answered yet`);
+          const m = meta();
+          if (m) logRobotEvent(m, 'robot:tool:rejected', { name, reason: 'participant has not answered yet' });
+          return {
+            ok: false,
+            error: 'Der Teilnehmer hat noch nicht geantwortet. Die Aufgabe startet erst, wenn er bestätigt, dass er bereit ist.',
+          };
+        }
       }
 
       const result = this.beginTask('robot');
@@ -270,12 +290,14 @@ export class Orchestrator {
     this.notify('onSessionStart', session);
     console.log(`[Session] Started: ${session.id}`);
 
-    this.briefingExplanationPending = !session.demo && robotConfig.briefingExplanation.length > 0;
     if (session.demo) {
       this.beginTask('demo');
     } else {
-      // Queued until the voice session is ready; the scripted rest of the
-      // briefing follows from the system prompt
+      // The robot doesn't listen while it explains the task; the mic opens
+      // with the briefing's last piece ("Bist du bereit?")
+      this.setBriefingMic(false);
+      // Queued until the voice session is ready; what happens after the
+      // readiness question follows from the system prompt
       this.dialog.requestSpeech({
         text: robotConfig.briefingOpener,
         mode: 'verbatim',
@@ -286,21 +308,14 @@ export class Orchestrator {
     return { ok: true, value: session };
   }
 
-  /**
-   * The participant answered the opener (normally with their name): queue
-   * the scripted explanation. It plays once the robot's own reply to the
-   * name has finished.
-   */
-  private continueBriefing(): void {
+  /** Mute/unmute the participant's mic for the briefing, with a log entry. */
+  private setBriefingMic(enabled: boolean): void {
     const session = this.activeSession;
-    if (!this.briefingExplanationPending || session?.status !== 'briefing') return;
-    this.briefingExplanationPending = false;
-    this.dialog.requestSpeech({
-      text: session.robotConfig.briefingExplanation,
-      mode: 'verbatim',
-      source: 'briefing',
-      priority: 'high',
-    });
+    if (this.dialog.isMicEnabled === enabled) return;
+    this.dialog.setMicEnabled(enabled);
+    if (session && !session.demo) {
+      logRobotEvent(this.logMeta(session), 'robot:mic', { enabled, reason: 'briefing' });
+    }
   }
 
   /**
@@ -314,7 +329,8 @@ export class Orchestrator {
     }
 
     const briefingDurationMs = Date.now() - session.createdAt;
-    this.briefingExplanationPending = false;
+    // An admin start may cut the briefing short — the robot listens from now on
+    this.setBriefingMic(true);
     session.begin();
 
     if (!session.demo) {

@@ -88,6 +88,10 @@ export class DialogManager {
   // the provider started itself after a participant turn)
   private currentSpeech: CurrentSpeech | null = null;
   private protectedResponsePending = false;
+  // Off during the scripted briefing: mic audio is dropped before it reaches
+  // the provider, so the participant can neither interrupt the robot nor
+  // trigger a reply until the robot asks whether they are ready
+  private micEnabled = true;
 
   // Hooks for the orchestrator — robot events land in the session JSONL log
   onTransition?: (from: RobotState, to: RobotState, reason: string) => void;
@@ -162,6 +166,8 @@ export class DialogManager {
   }
 
   stopVoice(): void {
+    // Manual voice tests (no session) always listen
+    this.micEnabled = true;
     if (!this.session) return;
     const session = this.session;
     this.session = null; // the identity guard filters this session's late events
@@ -169,6 +175,27 @@ export class DialogManager {
     this.clearPlaybackFallback();
     this.queue = [];
     this.transition('offline', 'voice:stop');
+  }
+
+  /** Forward the participant's mic to the provider (true) or drop it (false). */
+  setMicEnabled(enabled: boolean): void {
+    if (this.micEnabled === enabled) return;
+    this.micEnabled = enabled;
+    console.log(`[Dialog] mic ${enabled ? 'on' : 'off'}`);
+  }
+
+  get isMicEnabled(): boolean {
+    return this.micEnabled;
+  }
+
+  /** Whether speech from this source is still waiting in the queue. */
+  hasQueuedSpeech(source: SpeechSource): boolean {
+    return this.queue.some((q) => q.source === source);
+  }
+
+  /** Whether speech from this source is still queued or being spoken right now. */
+  hasPendingSpeech(source: SpeechSource): boolean {
+    return this.currentSpeech?.request.source === source || this.queue.some((q) => q.source === source);
   }
 
   /** Replace the tools the model may call, e.g. once the briefing is over. */
@@ -183,6 +210,7 @@ export class DialogManager {
 
   /** Mic PCM arriving from the unity client. */
   handleMicAudio(pcm: Buffer): void {
+    if (!this.micEnabled) return;
     this.session?.appendAudio(pcm);
   }
 
