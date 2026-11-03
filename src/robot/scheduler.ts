@@ -86,17 +86,18 @@ export class SpeechScheduler implements Subsystem {
     // Only at the very start of the task, not again after a pause
     if (initial && config.nameQuestion) {
       const question = config.nameQuestion;
-      this.after(Math.max(5000, Math.round(config.nameQuestionAfterSec * 1000)), () =>
-        this.whenQuiet(0, () =>
-          this.dialog.requestSpeech({
-            text: question,
-            mode: 'verbatim',
-            source: 'smalltalk',
-            priority: 'normal',
-            ttlMs: NAME_QUESTION_TTL_MS,
-          }),
-        ),
-      );
+      // Fixed time, no quiet wait: the dialog manager still holds it back
+      // until the current turn (robot or participant) is over
+      this.after(Math.max(5000, Math.round(config.nameQuestionAfterSec * 1000)), () => {
+        if (this.session?.status !== 'running') return;
+        this.dialog.requestSpeech({
+          text: question,
+          mode: 'verbatim',
+          source: 'smalltalk',
+          priority: 'normal',
+          ttlMs: NAME_QUESTION_TTL_MS,
+        });
+      });
     }
     if (config.smallTalkEnabled && config.smallTalkTopics.length > 0) {
       this.scheduleRecurring(

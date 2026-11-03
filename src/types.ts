@@ -51,8 +51,9 @@ export interface RobotConfig {
   smallTalkIntervalSec: number;
   smallTalkJitter: number; // 0..1, interval randomization like ticketJitter
   smallTalkTopics: string[];
-  /** Asked verbatim once, this long after the task starts (once the
-   *  conversation is quiet); empty = never asked */
+  /** Asked verbatim once, this long after the task starts (if the robot or
+   *  participant is talking right then, as soon as that turn is over);
+   *  empty = never asked */
   nameQuestion: string;
   nameQuestionAfterSec: number;
 

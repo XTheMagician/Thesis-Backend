@@ -79,9 +79,9 @@ const TALKATIVE_BRIEFING_OPENER =
 const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
 
 // Asked once the task is running instead of during the briefing (the mic
-// is off there); the reply to the answer is scripted in NAME_RULE
+// is off there). No scripted reply — the model answers the name naturally.
 const TALKATIVE_NAME_QUESTION = 'Ach, ich habe dich noch gar nicht gefragt: Wie heißt du eigentlich?';
-const TALKATIVE_NAME_QUESTION_AFTER_SEC = 15;
+const TALKATIVE_NAME_QUESTION_AFTER_SEC = 10;
 
 // Overrides the condition's behaviour rules for the briefing only
 const TALKATIVE_BRIEFING_RULE =
@@ -89,8 +89,7 @@ const TALKATIVE_BRIEFING_RULE =
   'Die Sitzung beginnt mit einer Einführung. Sie gilt für dich unabhängig von allen anderen Verhaltensregeln ' +
   'und läuft genau so ab:\n' +
   '1. Du stellst dich per "[SYSTEM: VERBATIM]" vor und erklärst die Aufgabe; die Erklärung endet mit der ' +
-  'Frage "Bist du bereit?". Erkläre die Aufgabe nicht von dir aus und frage in der Einführung nicht nach ' +
-  'dem Namen des Teilnehmers.\n' +
+  'Frage "Bist du bereit?". Erkläre die Aufgabe nicht von dir aus.\n' +
   '2. Bestätigt der Teilnehmer, dass er bereit ist, rufst du sofort die Funktion "' + BRIEFING_START_TOOL + '" auf ' +
   'und sagst selbst nichts weiter.\n' +
   '3. Hat der Teilnehmer stattdessen Fragen oder ist unsicher, beantwortest du seine Fragen kurz und freundlich ' +
@@ -98,12 +97,7 @@ const TALKATIVE_BRIEFING_RULE =
   BRIEFING_PIECES_RULE +
   BRIEFING_TOOL_RULE;
 
-// The name question comes per "[SYSTEM: VERBATIM]" once the task runs
-const TALKATIVE_NAME_RULE =
-  '\n\nName des Teilnehmers:\n' +
-  'Kurz nach Beginn der Aufgabe fragst du per "[SYSTEM: VERBATIM]" nach dem Namen des Teilnehmers. ' +
-  'Sobald er seinen Namen genannt hat, sagst du wortwörtlich nur: "Oh, das ist aber ein schöner Name." ' +
-  'Danach darfst du ihn mit seinem Namen ansprechen.';
+
 
 // --- Quiet -------------------------------------------------------- //
 
@@ -212,7 +206,6 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         'Input “[SYSTEM: PROMPT] Das Wetter heute"\n' +
         'Antwort: “Wie ist das Wetter heute? Habe gehört nächste Woche soll es windig werden.”' +
         TALKATIVE_BRIEFING_RULE +
-        TALKATIVE_NAME_RULE +
         TASK_KNOWLEDGE +
         LANGUAGE_RULE,
     responseLength: 'long',
