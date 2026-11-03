@@ -222,6 +222,7 @@ export class Orchestrator {
       sessionTimerMs: params.sessionTimerMs,
       ticketPool: getTicketPool(activeCategories(categoryCount)),
       ruleSchedule: params.ruleSchedule,
+      rulePresetId: params.rulePresetId,
       demo: params.demo,
       onEvent: (event) => this.handleSessionEvent(event),
     });

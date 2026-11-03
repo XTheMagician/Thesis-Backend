@@ -33,8 +33,18 @@ export interface SessionParams {
   sessionTimerMs?: number;
   ticketPool: Ticket[];
   ruleSchedule?: RuleScheduleEntry[];
+  /** Rule plan used in the hard condition ("Plan A", "Plan B", a saved preset name or "custom"). */
+  rulePresetId?: string;
   demo?: boolean;
   onEvent: (event: SessionEvent) => void;
+}
+
+/** Short, filename-safe tag for the hard-condition rule plan: "Plan A" → "A", "Plan B" → "B", otherwise a slug. */
+function rulePlanTag(rulePresetId: string | undefined): string {
+  const name = (rulePresetId ?? 'custom').trim();
+  const builtin = /^plan\s+([a-z])$/i.exec(name);
+  if (builtin) return builtin[1].toUpperCase();
+  return name.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'custom';
 }
 
 export class Session {
@@ -99,7 +109,8 @@ export class Session {
     this.onEvent = params.onEvent;
 
     const tag = this.demo ? '-demo' : '';
-    this.id = `${params.participantId}-${params.taskCondition}-${params.robotCondition}${tag}-${Date.now()}`;
+    const plan = params.taskCondition === 'hard' ? `-${rulePlanTag(params.rulePresetId)}` : '';
+    this.id = `${params.participantId}-${params.taskCondition}${plan}-${params.robotCondition}${tag}-${Date.now()}`;
     this.status = 'briefing';
     this.createdAt = Date.now();
     this.startedAt = this.createdAt;
