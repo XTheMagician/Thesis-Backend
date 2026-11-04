@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { LOGS_DIR } from './logger';
-import { PARTICIPANT_ID_PATTERN } from './config/study';
 
 // ------------------------------------------------------------------ //
 //  Analysis export                                                     //
@@ -12,7 +11,7 @@ import { PARTICIPANT_ID_PATTERN } from './config/study';
 //  reads them and (re)computes, from scratch each time, the xlsx       //
 //  analysis files:                                                     //
 //    exports/all.xlsx                 — every session / participant    //
-//    exports/participants/P###.xlsx   — one participant's rows         //
+//    exports/participants/<id>.xlsx   — one participant's rows         //
 //                                                                      //
 //  Per-participant and aggregate files share one computation           //
 //  (computeAnalysis), so they can never disagree. Files are fully      //
@@ -289,11 +288,6 @@ export function computeAnalysis(): Analysis {
       }
     }
 
-    const patternOk = PARTICIPANT_ID_PATTERN.test(pid);
-    if (!patternOk) {
-      hinweise.push({ participantId: pid, sessionId: '', grund: `participantId entspricht nicht dem Muster ${PARTICIPANT_ID_PATTERN.source}.` });
-    }
-
     const talk = rows.filter((r) => r.completed && r.robotCondition === 'talkative');
     const quiet = rows.filter((r) => r.completed && r.robotCondition === 'quiet');
 
@@ -306,7 +300,7 @@ export function computeAnalysis(): Analysis {
           sessionId: '',
           grund: `Unterschiedliche taskCondition in den beiden completed-Sessions (talkative: ${t.taskCondition || '—'}, quiet: ${q.taskCondition || '—'}) — nicht ins participants-Blatt übernommen.`,
         });
-      } else if (patternOk) {
+      } else {
         participantRows.push(buildParticipantRow(pid, t, q));
       }
     } else {

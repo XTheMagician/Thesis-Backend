@@ -19,10 +19,6 @@ export const LOG_SCHEMA_VERSION = 1;
 export const LOG_USER_TRANSCRIPT_TEXT =
   (process.env.LOG_USER_TRANSCRIPT_TEXT ?? '').toLowerCase() === 'true';
 
-/** Valid participant-code pattern. Only matching codes reach the aggregate
- *  "participants" export sheet; everything else is flagged under "hinweise". */
-export const PARTICIPANT_ID_PATTERN = /^P\d{3}$/;
-
 /**
  * App version recorded in session:started: the current git commit hash if the
  * backend runs from a checkout, otherwise the package.json version. Resolved

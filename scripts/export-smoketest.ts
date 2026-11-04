@@ -107,8 +107,8 @@ session('P901', 'hard', 'quiet', 'Plan A', base + 600_000, { ended: 'aborted' },
 // P902 — crash: no session:ended, no task:started
 session('P902', 'easy', 'quiet', 'none', base, { ended: null, taskStarted: false }, []);
 
-// badId — participantId does not match pattern
-session('badId', 'easy', 'talkative', 'none', base, { ended: 'timeout' }, talkEvents);
+// X-test — free-form ID (no naming pattern enforced): only one completed session -> hinweis
+session('X-test', 'easy', 'talkative', 'none', base, { ended: 'timeout' }, talkEvents);
 
 async function main() {
   await regenerateAllExports();
@@ -164,7 +164,7 @@ main()
       const f = join(LOGS_DIR, `${id}.jsonl`);
       if (existsSync(f)) rmSync(f);
     }
-    for (const pid of ['P900', 'P901', 'P902', 'badId']) {
+    for (const pid of ['P900', 'P901', 'P902', 'X-test']) {
       const f = participantExportPath(pid);
       if (existsSync(f)) rmSync(f);
     }
