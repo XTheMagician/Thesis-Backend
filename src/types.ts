@@ -159,6 +159,10 @@ export interface SessionStartMessage {
      *  preset name, or "custom"); "none" for easy runs. Logged in taskConfig. */
     rulePresetId?: string;
     robotOverrides?: RobotOverrides;
+    /** Live-chat side task (hard): on by default in hard, off in easy. */
+    chatEnabled?: boolean;
+    /** How long a chat stays open before it counts as a lost customer. */
+    chatTimeoutMs?: number;
     /** Demo run: no briefing and no voice session, the task starts at once */
     demo?: boolean;
   };
@@ -177,6 +181,38 @@ export interface TicketSortMessage {
 
 export interface SessionEndMessage {
   type: 'session:end';
+}
+
+// ------------------------------------------------------------------ //
+//  Live-chat side task — client reports (frontend owns the timing)     //
+// ------------------------------------------------------------------ //
+
+/** The chat became visible; the client's reaction clock starts here. */
+export interface ChatRenderedMessage {
+  type: 'chat:rendered';
+  chatId?: string;
+  /** Client wall-clock (Date.now) when the active state was rendered. */
+  clientTs?: number;
+}
+
+/** Participant clicked "Annehmen" while a chat was open. */
+export interface ChatAcceptedMessage {
+  type: 'chat:accepted';
+  chatId?: string;
+  /** Measured client-side from render to click — excludes network latency. */
+  reactionTimeMs?: number;
+}
+
+/** The open chat timed out without a click (client-reported). */
+export interface ChatMissedMessage {
+  type: 'chat:missed';
+  chatId?: string;
+}
+
+/** Click on "Annehmen" with no chat open — a monitoring error worth logging. */
+export interface ChatFalseClickMessage {
+  type: 'chat:falseClick';
+  chatId?: string;
 }
 
 export interface SessionPauseMessage {
@@ -226,6 +262,10 @@ export type InboundMessage =
   | SessionBeginMessage
   | TicketSortMessage
   | SessionEndMessage
+  | ChatRenderedMessage
+  | ChatAcceptedMessage
+  | ChatMissedMessage
+  | ChatFalseClickMessage
   | SessionPauseMessage
   | SessionResumeMessage
   | SessionStatusMessage

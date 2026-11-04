@@ -61,6 +61,11 @@ export interface SessionRow {
   robotSmalltalkCount: number;
   userUtteranceCount: number;
   userSpeakingSec: number;
+  chatsShown: number;
+  chatsAccepted: number;
+  chatsMissed: number;
+  meanReactionTimeMs: number | null;
+  falseClicks: number;
   // Bookkeeping (not emitted as columns)
   startedAtMs: number;
   hasTaskStarted: boolean;
@@ -87,10 +92,15 @@ export interface ParticipantRow {
   quiet_userUtteranceCount: number;
   talk_userSpeakingSec: number;
   quiet_userSpeakingSec: number;
+  talk_lostCustomers: number;
+  quiet_lostCustomers: number;
+  talk_meanReactionTimeMs: number | null;
+  quiet_meanReactionTimeMs: number | null;
   adv_score: number;
   adv_throughput: number | null;
   adv_accuracy: number | null;
   adv_medianHandlingMs: number | null;
+  adv_lostCustomers: number;
 }
 
 export interface Hinweis {
@@ -167,6 +177,11 @@ function computeSessionRow(raw: RawSession): SessionRow {
   let robotSmalltalkCount = 0;
   let userUtteranceCount = 0;
   let userSpeakingMs = 0;
+  let chatsShown = 0;
+  let chatsAccepted = 0;
+  let chatsMissed = 0;
+  let falseClicks = 0;
+  const reactionTimesMs: number[] = [];
 
   const arrivalMsById = new Map<string, number>();
   const sorted: { id: string; sortedMs: number }[] = [];
@@ -193,6 +208,19 @@ function computeSessionRow(raw: RawSession): SessionRow {
         case 'user:utterance':
           userUtteranceCount++;
           if (typeof e.durationMs === 'number') userSpeakingMs += e.durationMs;
+          break;
+        case 'chat:shown':
+          chatsShown++;
+          break;
+        case 'chat:accepted':
+          chatsAccepted++;
+          if (typeof e.reactionTimeMs === 'number') reactionTimesMs.push(e.reactionTimeMs);
+          break;
+        case 'chat:missed':
+          chatsMissed++;
+          break;
+        case 'chat:falseClick':
+          falseClicks++;
           break;
       }
     }
@@ -235,10 +263,19 @@ function computeSessionRow(raw: RawSession): SessionRow {
     robotSmalltalkCount,
     userUtteranceCount,
     userSpeakingSec: userSpeakingMs / 1000,
+    chatsShown,
+    chatsAccepted,
+    chatsMissed,
+    meanReactionTimeMs: reactionTimesMs.length > 0 ? mean(reactionTimesMs) : null,
+    falseClicks,
     startedAtMs,
     hasTaskStarted: taskStarted != null,
     hasSessionEnded: ended != null,
   };
+}
+
+function mean(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
 function median(values: number[]): number | null {
@@ -339,11 +376,17 @@ function buildParticipantRow(pid: string, t: SessionRow, q: SessionRow): Partici
     quiet_userUtteranceCount: q.userUtteranceCount,
     talk_userSpeakingSec: t.userSpeakingSec,
     quiet_userSpeakingSec: q.userSpeakingSec,
+    talk_lostCustomers: t.chatsMissed,
+    quiet_lostCustomers: q.chatsMissed,
+    talk_meanReactionTimeMs: t.meanReactionTimeMs,
+    quiet_meanReactionTimeMs: q.meanReactionTimeMs,
     adv_score: t.score - q.score,
     adv_throughput: diff(t.throughput, q.throughput),
     adv_accuracy: diff(t.accuracy, q.accuracy),
     // Reversed so a positive value everywhere means "the talkative agent helped"
     adv_medianHandlingMs: diff(q.medianHandlingMs, t.medianHandlingMs),
+    // Likewise reversed: fewer lost customers under talkative → positive
+    adv_lostCustomers: q.chatsMissed - t.chatsMissed,
   };
 }
 
@@ -372,6 +415,11 @@ const SESSION_COLUMNS: { header: string; key: keyof SessionRow }[] = [
   { header: 'robotSmalltalkCount', key: 'robotSmalltalkCount' },
   { header: 'userUtteranceCount', key: 'userUtteranceCount' },
   { header: 'userSpeakingSec', key: 'userSpeakingSec' },
+  { header: 'chatsShown', key: 'chatsShown' },
+  { header: 'chatsAccepted', key: 'chatsAccepted' },
+  { header: 'chatsMissed', key: 'chatsMissed' },
+  { header: 'meanReactionTimeMs', key: 'meanReactionTimeMs' },
+  { header: 'falseClicks', key: 'falseClicks' },
 ];
 
 const PARTICIPANT_COLUMNS: { header: string; key: keyof ParticipantRow }[] = [
@@ -394,10 +442,15 @@ const PARTICIPANT_COLUMNS: { header: string; key: keyof ParticipantRow }[] = [
   { header: 'quiet_userUtteranceCount', key: 'quiet_userUtteranceCount' },
   { header: 'talk_userSpeakingSec', key: 'talk_userSpeakingSec' },
   { header: 'quiet_userSpeakingSec', key: 'quiet_userSpeakingSec' },
+  { header: 'talk_lostCustomers', key: 'talk_lostCustomers' },
+  { header: 'quiet_lostCustomers', key: 'quiet_lostCustomers' },
+  { header: 'talk_meanReactionTimeMs', key: 'talk_meanReactionTimeMs' },
+  { header: 'quiet_meanReactionTimeMs', key: 'quiet_meanReactionTimeMs' },
   { header: 'adv_score', key: 'adv_score' },
   { header: 'adv_throughput', key: 'adv_throughput' },
   { header: 'adv_accuracy', key: 'adv_accuracy' },
   { header: 'adv_medianHandlingMs', key: 'adv_medianHandlingMs' },
+  { header: 'adv_lostCustomers', key: 'adv_lostCustomers' },
 ];
 
 const HINWEIS_COLUMNS: { header: string; key: keyof Hinweis }[] = [

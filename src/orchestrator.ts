@@ -43,6 +43,8 @@ export interface StartParams {
   sessionTimerMs?: number;
   ruleSchedule?: RuleScheduleEntry[];
   rulePresetId?: string;
+  chatEnabled?: boolean;
+  chatTimeoutMs?: number;
   robotOverrides?: RobotOverrides;
   demo?: boolean;
 }
@@ -243,6 +245,8 @@ export class Orchestrator {
       ticketPool: getTicketPool(activeCategories(categoryCount)),
       ruleSchedule: params.ruleSchedule,
       rulePresetId: params.rulePresetId,
+      chatEnabled: params.chatEnabled,
+      chatTimeoutMs: params.chatTimeoutMs,
       demo: params.demo,
       onEvent: (event) => this.handleSessionEvent(event),
     });
@@ -257,6 +261,9 @@ export class Orchestrator {
       durationMs: session.sessionTimerMs,
       rulePresetId: params.rulePresetId ?? (session.taskCondition === 'easy' ? 'none' : 'custom'),
       categoryCount: session.categoryCount,
+      chatEnabled: session.chatEnabled,
+      chatTimeoutMs: session.chatTimeoutMs,
+      chatSchedule: session.chatSchedule,
     };
 
     // The resolved robot config and task config go into the log so every
@@ -284,6 +291,8 @@ export class Orchestrator {
       categoryCount: session.categoryCount,
       timerDurationMs: session.sessionTimerMs,
       startedAt: session.startedAt,
+      chatEnabled: session.chatEnabled,
+      chatTimeoutMs: session.chatTimeoutMs,
     });
 
     // Starts the voice session (not in demo runs)
@@ -409,6 +418,11 @@ export class Orchestrator {
       totalWrong: session.stats.wrong,
       accuracy,
       sessionDurationMs: session.duration ?? undefined,
+      chatsShown: session.chatsShown,
+      chatsAccepted: session.chatsAccepted,
+      chatsMissed: session.chatsMissed,
+      meanReactionTimeMs: session.meanReactionTimeMs,
+      falseClicks: session.falseClicks,
     });
 
     const demo = session.demo;
@@ -482,6 +496,38 @@ export class Orchestrator {
     return { ok: true, value: result };
   }
 
+  // ------------------------------------------------------------------ //
+  //  Live-chat client reports (the frontend owns the reaction timing)    //
+  // ------------------------------------------------------------------ //
+
+  /** The participant's screen rendered the chat — logged with the client clock. */
+  chatRendered(chatId: string, clientTs: number | undefined): void {
+    const session = this.activeSession;
+    if (!session) return;
+    this.log(session, 'chat:rendered', { chatId, clientTs: clientTs ?? null });
+  }
+
+  chatAccepted(chatId: string, reactionTimeMs: number): void {
+    const session = this.activeSession;
+    if (!session || session.status !== 'running') return;
+    if (!session.chatAccepted(chatId, reactionTimeMs)) return; // stale/foreign id
+    this.log(session, 'chat:accepted', { chatId, reactionTimeMs });
+  }
+
+  /** Client reported a timeout. The chatMissed session event logs + broadcasts. */
+  chatMissed(chatId: string): void {
+    const session = this.activeSession;
+    if (!session || session.status !== 'running') return;
+    session.chatMissedByClient(chatId);
+  }
+
+  chatFalseClick(chatId: string | undefined): void {
+    const session = this.activeSession;
+    if (!session) return;
+    session.chatFalseClick();
+    this.log(session, 'chat:falseClick', { chatId: chatId ?? null });
+  }
+
   statusPayload(): object {
     const session = this.activeSession;
     // Connection state for the admin panel, independent of any session
@@ -508,6 +554,11 @@ export class Orchestrator {
           startedAt: session.startedAt,
           totalPausedMs: session.totalPausedMs,
           pausedAt: session.pausedAt,
+          // Live-chat side task: config plus the cumulative lost-customer count,
+          // so a reloaded client restores the counter and salience/timeout.
+          chatEnabled: session.chatEnabled,
+              chatTimeoutMs: session.chatTimeoutMs,
+          lostCustomers: session.chatsMissed,
         }
       : { ...connections, type: 'session:status', status: 'idle' };
   }
@@ -547,6 +598,28 @@ export class Orchestrator {
             uninterruptible: true,
           });
         }
+        break;
+
+      case 'chatShow':
+        this.log(session, 'chat:shown', {
+          chatId: event.chatId,
+          scheduledOnsetSec: event.scheduledOnsetSec,
+        });
+        this.hub.broadcast({ type: 'chat:show', chatId: event.chatId });
+        break;
+
+      case 'chatMissed':
+        this.log(session, 'chat:missed', { chatId: event.chatId, reason: event.reason });
+        this.hub.broadcast({
+          type: 'chat:missed',
+          chatId: event.chatId,
+          lostCustomers: event.lostCustomers,
+        });
+        break;
+
+      // chatAccepted is logged synchronously in the chatAccepted() action; the
+      // event exists for symmetry but needs no broadcast (no shared UI change).
+      case 'chatAccepted':
         break;
 
       case 'timerExpired':

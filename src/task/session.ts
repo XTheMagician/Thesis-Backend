@@ -12,6 +12,14 @@ import type {
 } from '../types';
 import { shuffle } from './tickets';
 import { initialRules, type CategoryCount } from './categories';
+import {
+  CHAT_SCHEDULE_SEC,
+  CHAT_FALLBACK_GRACE_MS,
+  DEFAULT_CHAT_TIMEOUT_MS,
+} from '../config/liveChat';
+
+/** Why a chat ended up a miss. */
+export type ChatMissReason = 'clientTimeout' | 'noClientResponse';
 
 /**
  * Domain events the task engine raises. The orchestrator subscribes and
@@ -20,6 +28,9 @@ import { initialRules, type CategoryCount } from './categories';
 export type SessionEvent =
   | { kind: 'ticketQueued'; ticket: QueuedTicket; queueLength: number }
   | { kind: 'rulesChanged'; rules: ActiveRules; robotSpeech: string | null }
+  | { kind: 'chatShow'; chatId: string; scheduledOnsetSec: number }
+  | { kind: 'chatAccepted'; chatId: string; reactionTimeMs: number }
+  | { kind: 'chatMissed'; chatId: string; reason: ChatMissReason; lostCustomers: number }
   | { kind: 'timerExpired' };
 
 export interface SessionParams {
@@ -35,6 +46,9 @@ export interface SessionParams {
   ruleSchedule?: RuleScheduleEntry[];
   /** Rule plan used in the hard condition ("Plan A", "Plan B", a saved preset name or "custom"). */
   rulePresetId?: string;
+  /** Live-chat side task (resolved: default on in hard, forced off in easy). */
+  chatEnabled?: boolean;
+  chatTimeoutMs?: number;
   demo?: boolean;
   onEvent: (event: SessionEvent) => void;
 }
@@ -78,15 +92,37 @@ export class Session {
   results: SortResult[] = [];
   stats: SessionStats = { total: 0, correct: 0, wrong: 0 };
 
+  // Live-chat side task (hard condition only). The frontend owns the reaction
+  // clock and the visible timeout; the backend sends onsets, logs, and keeps a
+  // fallback timer. Counts are session-cumulative; lostCustomers (= chatsMissed)
+  // is the "Verlorene Kunden" measure.
+  readonly chatEnabled: boolean;
+  readonly chatTimeoutMs: number;
+  /** The open chat awaiting a client report (accept/miss), or null. */
+  activeChat: { chatId: string } | null = null;
+  chatsShown = 0;
+  chatsAccepted = 0;
+  chatsMissed = 0;
+  falseClicks = 0;
+  /** Reaction times (ms) of accepted chats, for the mean in session:ended. */
+  readonly reactionTimesMs: number[] = [];
+
   private readonly onEvent: (event: SessionEvent) => void;
   private ticketPool: Ticket[];
   private readonly ruleSchedule: RuleScheduleEntry[];
+  /** Fixed chat onset times (seconds after task start); empty when disabled. */
+  readonly chatSchedule: readonly number[];
   private ticketIndex = 0;
   /** 1-based pass through the pool; the pool is reshuffled and repeated once exhausted */
   private ticketRound = 1;
 
   private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
   private ruleTimers: ReturnType<typeof setTimeout>[] = [];
+  private chatTimers: ReturnType<typeof setTimeout>[] = [];
+  private chatFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Fallback deadline (epoch ms) for the open chat; restored across pause. */
+  private chatFallbackDeadline: number | null = null;
+  private chatFallbackRemainingMs: number | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Remaining times captured on pause so timers can be recreated on resume
@@ -105,6 +141,10 @@ export class Session {
     this.sessionTimerMs = params.sessionTimerMs ?? null;
     this.ticketPool = params.ticketPool;
     this.ruleSchedule = params.ruleSchedule ?? [];
+    // Live chat only exists in the hard condition; easy forces it off.
+    this.chatEnabled = params.taskCondition === 'hard' && params.chatEnabled !== false;
+    this.chatTimeoutMs = params.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
+    this.chatSchedule = this.chatEnabled ? CHAT_SCHEDULE_SEC : [];
     this.demo = params.demo ?? false;
     this.onEvent = params.onEvent;
 
@@ -126,6 +166,7 @@ export class Session {
     this.lastDispatchAt = this.startedAt;
     this.scheduleNextTicket();
     this.scheduleRuleTimers();
+    this.scheduleChatTimers();
     this.scheduleSessionTimer(this.sessionTimerMs ?? undefined);
   }
 
@@ -150,6 +191,16 @@ export class Session {
     // Rule timers are recomputed from elapsed active time on resume
     this.ruleTimers.forEach(clearTimeout);
     this.ruleTimers = [];
+
+    // Chat onsets are likewise recomputed on resume; the fallback timer for an
+    // open chat keeps its remaining window frozen so paused time doesn't count.
+    this.chatTimers.forEach(clearTimeout);
+    this.chatTimers = [];
+    if (this.chatFallbackTimer && this.chatFallbackDeadline != null) {
+      this.chatFallbackRemainingMs = Math.max(0, this.chatFallbackDeadline - Date.now());
+      clearTimeout(this.chatFallbackTimer);
+      this.chatFallbackTimer = null;
+    }
   }
 
   /** Returns the remaining session-timer ms so callers can report it. */
@@ -163,6 +214,12 @@ export class Session {
     this.dispatchRemainingMs = null;
 
     this.scheduleRuleTimers();
+
+    this.scheduleChatTimers();
+    if (this.activeChat && this.chatFallbackRemainingMs != null) {
+      this.armChatFallback(this.chatFallbackRemainingMs);
+      this.chatFallbackRemainingMs = null;
+    }
 
     const remaining = this.sessionTimerRemainingMs;
     if (remaining != null) {
@@ -181,6 +238,42 @@ export class Session {
     if (this.dispatchTimer) clearTimeout(this.dispatchTimer);
     if (this.sessionTimer) clearTimeout(this.sessionTimer);
     this.ruleTimers.forEach(clearTimeout);
+    this.chatTimers.forEach(clearTimeout);
+    if (this.chatFallbackTimer) clearTimeout(this.chatFallbackTimer);
+  }
+
+  // ------------------------------------------------------------------ //
+  //  Live-chat client reports                                            //
+  // ------------------------------------------------------------------ //
+
+  /** Participant accepted the open chat. Returns false for a stale/foreign id. */
+  chatAccepted(chatId: string, reactionTimeMs: number): boolean {
+    if (!this.activeChat || this.activeChat.chatId !== chatId) return false;
+    this.clearOpenChat();
+    this.chatsAccepted++;
+    if (Number.isFinite(reactionTimeMs) && reactionTimeMs >= 0) {
+      this.reactionTimesMs.push(reactionTimeMs);
+    }
+    this.onEvent({ kind: 'chatAccepted', chatId, reactionTimeMs });
+    return true;
+  }
+
+  /** Client reported the open chat timed out. Returns false for a stale id. */
+  chatMissedByClient(chatId: string): boolean {
+    if (!this.activeChat || this.activeChat.chatId !== chatId) return false;
+    this.registerMiss(chatId, 'clientTimeout');
+    return true;
+  }
+
+  /** Click on "Annehmen" with no chat open — logged as a monitoring error. */
+  chatFalseClick(): void {
+    this.falseClicks++;
+  }
+
+  private registerMiss(chatId: string, reason: ChatMissReason): void {
+    this.clearOpenChat();
+    this.chatsMissed++;
+    this.onEvent({ kind: 'chatMissed', chatId, reason, lostCustomers: this.chatsMissed });
   }
 
   sort(ticketId: string, decision: Decision): { ticket: QueuedTicket; result: SortResult } | null {
@@ -288,6 +381,64 @@ export class Session {
       }, remainingMs);
       this.ruleTimers.push(timer);
     }
+  }
+
+  /**
+   * Arm one timer per not-yet-due chat onset. Recomputed from elapsed active
+   * time on begin and resume, so onsets already in the past are skipped —
+   * exactly like the rule timers.
+   */
+  private scheduleChatTimers(): void {
+    if (!this.chatEnabled || this.chatSchedule.length === 0) return;
+
+    const elapsed = this.elapsedActiveMs;
+    this.chatSchedule.forEach((atSecond, index) => {
+      const remainingMs = atSecond * 1000 - elapsed;
+      if (remainingMs <= 0) return; // already fired (resolved, or open via activeChat)
+
+      const timer = setTimeout(() => {
+        if (this.status !== 'running') return;
+        this.showChat(index, atSecond);
+      }, remainingMs);
+      this.chatTimers.push(timer);
+    });
+  }
+
+  private showChat(index: number, scheduledOnsetSec: number): void {
+    // Onsets are >=17 s apart and a chat resolves within ~7 s, so two never
+    // overlap; skip rather than stack if a previous chat is somehow still open.
+    if (this.activeChat) return;
+    const chatId = `chat-${index + 1}`;
+    this.activeChat = { chatId };
+    this.chatsShown++;
+    // Fallback: if the client never reports back, declare the miss ourselves.
+    this.armChatFallback(this.chatTimeoutMs + CHAT_FALLBACK_GRACE_MS);
+    this.onEvent({ kind: 'chatShow', chatId, scheduledOnsetSec });
+  }
+
+  private armChatFallback(ms: number): void {
+    this.chatFallbackDeadline = Date.now() + ms;
+    this.chatFallbackTimer = setTimeout(() => {
+      if (this.status !== 'running' || !this.activeChat) return;
+      this.registerMiss(this.activeChat.chatId, 'noClientResponse');
+    }, ms);
+  }
+
+  private clearOpenChat(): void {
+    if (this.chatFallbackTimer) {
+      clearTimeout(this.chatFallbackTimer);
+      this.chatFallbackTimer = null;
+    }
+    this.chatFallbackDeadline = null;
+    this.chatFallbackRemainingMs = null;
+    this.activeChat = null;
+  }
+
+  /** Mean reaction time over accepted chats, or null if none were accepted. */
+  get meanReactionTimeMs(): number | null {
+    if (this.reactionTimesMs.length === 0) return null;
+    const sum = this.reactionTimesMs.reduce((a, b) => a + b, 0);
+    return sum / this.reactionTimesMs.length;
   }
 
   private scheduleSessionTimer(ms?: number): void {

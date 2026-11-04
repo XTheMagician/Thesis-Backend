@@ -1,6 +1,7 @@
 import type { Hub } from './hub';
 import type { Orchestrator } from './orchestrator';
 import type { DialogManager } from './robot/dialog-manager';
+import { cleanChatTimeoutMs } from './config/liveChat';
 import type { Decision, InboundMessage, RobotCondition, RuleScheduleEntry, TaskCondition } from './types';
 
 export interface RouterContext {
@@ -52,6 +53,9 @@ export function handleMessage(ctx: RouterContext): void {
         sessionTimerMs: msg.params?.sessionTimerMs,
         ruleSchedule: msg.params?.ruleSchedule as RuleScheduleEntry[] | undefined,
         rulePresetId: msg.params?.rulePresetId,
+        chatEnabled: msg.params?.chatEnabled,
+        chatTimeoutMs:
+          msg.params?.chatTimeoutMs != null ? cleanChatTimeoutMs(msg.params.chatTimeoutMs) : undefined,
         robotOverrides: msg.params?.robotOverrides,
         demo,
       });
@@ -77,6 +81,33 @@ export function handleMessage(ctx: RouterContext): void {
 
       const result = orchestrator.sortTicket(ticketId, decision);
       if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
+      break;
+    }
+
+    case 'chat:rendered': {
+      const chatId = msg.chatId?.trim();
+      if (chatId) orchestrator.chatRendered(chatId, msg.clientTs);
+      break;
+    }
+
+    case 'chat:accepted': {
+      const chatId = msg.chatId?.trim();
+      const reactionTimeMs = msg.reactionTimeMs;
+      // A stale/foreign id is a no-op; reaction time must be a finite number.
+      if (chatId && typeof reactionTimeMs === 'number' && Number.isFinite(reactionTimeMs)) {
+        orchestrator.chatAccepted(chatId, reactionTimeMs);
+      }
+      break;
+    }
+
+    case 'chat:missed': {
+      const chatId = msg.chatId?.trim();
+      if (chatId) orchestrator.chatMissed(chatId);
+      break;
+    }
+
+    case 'chat:falseClick': {
+      orchestrator.chatFalseClick(msg.chatId?.trim());
       break;
     }
 
