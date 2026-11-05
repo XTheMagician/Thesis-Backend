@@ -106,6 +106,12 @@ export function handleMessage(ctx: RouterContext): void {
       break;
     }
 
+    case 'chat:spawn': {
+      const result = orchestrator.spawnChat();
+      if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
+      break;
+    }
+
     case 'chat:falseClick': {
       orchestrator.chatFalseClick(msg.chatId?.trim());
       break;

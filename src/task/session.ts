@@ -28,7 +28,8 @@ export type ChatMissReason = 'clientTimeout' | 'noClientResponse';
 export type SessionEvent =
   | { kind: 'ticketQueued'; ticket: QueuedTicket; queueLength: number }
   | { kind: 'rulesChanged'; rules: ActiveRules; robotSpeech: string | null }
-  | { kind: 'chatShow'; chatId: string; scheduledOnsetSec: number }
+  /** scheduledOnsetSec is null for a chat spawned manually (demo runs). */
+  | { kind: 'chatShow'; chatId: string; scheduledOnsetSec: number | null }
   | { kind: 'chatAccepted'; chatId: string; reactionTimeMs: number }
   | { kind: 'chatMissed'; chatId: string; reason: ChatMissReason; lostCustomers: number }
   | { kind: 'timerExpired' };
@@ -46,7 +47,7 @@ export interface SessionParams {
   ruleSchedule?: RuleScheduleEntry[];
   /** Rule plan used in the hard condition ("Plan A", "Plan B", a saved preset name or "custom"). */
   rulePresetId?: string;
-  /** Live-chat side task (resolved: default on in hard, forced off in easy). */
+  /** Live-chat side task (resolved: default on in hard, forced off in easy; always on in demo runs). */
   chatEnabled?: boolean;
   chatTimeoutMs?: number;
   demo?: boolean;
@@ -112,6 +113,8 @@ export class Session {
   private readonly ruleSchedule: RuleScheduleEntry[];
   /** Fixed chat onset times (seconds after task start); empty when disabled. */
   readonly chatSchedule: readonly number[];
+  /** Counter for manually spawned chats (demo runs), for unique chat ids. */
+  private manualChatCount = 0;
   private ticketIndex = 0;
   /** 1-based pass through the pool; the pool is reshuffled and repeated once exhausted */
   private ticketRound = 1;
@@ -141,11 +144,13 @@ export class Session {
     this.sessionTimerMs = params.sessionTimerMs ?? null;
     this.ticketPool = params.ticketPool;
     this.ruleSchedule = params.ruleSchedule ?? [];
-    // Live chat only exists in the hard condition; easy forces it off.
-    this.chatEnabled = params.taskCondition === 'hard' && params.chatEnabled !== false;
-    this.chatTimeoutMs = params.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
-    this.chatSchedule = this.chatEnabled ? CHAT_SCHEDULE_SEC : [];
     this.demo = params.demo ?? false;
+    // Live chat only exists in the hard condition; easy forces it off. Demo
+    // runs always show the chat panel (so the UI matches the study), but have
+    // no schedule: chats only appear when the admin spawns one (spawnChat).
+    this.chatEnabled = this.demo || (params.taskCondition === 'hard' && params.chatEnabled !== false);
+    this.chatTimeoutMs = params.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
+    this.chatSchedule = this.chatEnabled && !this.demo ? CHAT_SCHEDULE_SEC : [];
     this.onEvent = params.onEvent;
 
     const tag = this.demo ? '-demo' : '';
@@ -398,17 +403,29 @@ export class Session {
 
       const timer = setTimeout(() => {
         if (this.status !== 'running') return;
-        this.showChat(index, atSecond);
+        this.showChat(`chat-${index + 1}`, atSecond);
       }, remainingMs);
       this.chatTimers.push(timer);
     });
   }
 
-  private showChat(index: number, scheduledOnsetSec: number): void {
+  /**
+   * Open a chat right now, outside the schedule (admin button in demo runs).
+   * Returns the chat id, or an error if no chat can be opened at the moment.
+   */
+  spawnChat(): { ok: true; chatId: string } | { ok: false; error: string } {
+    if (this.status !== 'running') return { ok: false, error: 'The task is not running.' };
+    if (!this.chatEnabled) return { ok: false, error: 'Live chat is disabled in this session.' };
+    if (this.activeChat) return { ok: false, error: 'A chat is already open.' };
+    const chatId = `chat-manual-${++this.manualChatCount}`;
+    this.showChat(chatId, null);
+    return { ok: true, chatId };
+  }
+
+  private showChat(chatId: string, scheduledOnsetSec: number | null): void {
     // Onsets are >=17 s apart and a chat resolves within ~7 s, so two never
     // overlap; skip rather than stack if a previous chat is somehow still open.
     if (this.activeChat) return;
-    const chatId = `chat-${index + 1}`;
     this.activeChat = { chatId };
     this.chatsShown++;
     // Fallback: if the client never reports back, declare the miss ourselves.

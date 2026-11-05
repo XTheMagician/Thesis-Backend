@@ -163,7 +163,8 @@ export interface SessionStartMessage {
     chatEnabled?: boolean;
     /** How long a chat stays open before it counts as a lost customer. */
     chatTimeoutMs?: number;
-    /** Demo run: no briefing and no voice session, the task starts at once */
+    /** Demo run: no briefing and no voice session, the task starts at once.
+     *  Live chat is always shown but has no schedule — chats come from chat:spawn. */
     demo?: boolean;
   };
 }
@@ -213,6 +214,11 @@ export interface ChatMissedMessage {
 export interface ChatFalseClickMessage {
   type: 'chat:falseClick';
   chatId?: string;
+}
+
+/** Admin panel: open a live chat right now (demo runs only). */
+export interface ChatSpawnMessage {
+  type: 'chat:spawn';
 }
 
 export interface SessionPauseMessage {
@@ -266,6 +272,7 @@ export type InboundMessage =
   | ChatAcceptedMessage
   | ChatMissedMessage
   | ChatFalseClickMessage
+  | ChatSpawnMessage
   | SessionPauseMessage
   | SessionResumeMessage
   | SessionStatusMessage

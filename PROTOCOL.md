@@ -89,7 +89,12 @@ timing (ticket dispatch, rule schedule, session timer) counts from.
 `demo: true` skips the briefing and the voice session entirely — the task
 starts immediately (`trigger: "demo"`) and the robot stays silent. Demo runs
 are not logged at all (no JSONL log, no export); `participantId` is
-optional for them. Their session IDs carry a `-demo-` tag.
+optional for them. Their session IDs carry a `-demo-` tag. The live-chat
+panel is always enabled in demo runs (any task condition), but no chats are
+scheduled: the admin panel opens one on demand with `chat:spawn` (no payload;
+rejected with an `error` outside demo runs, while the task isn't running, or
+while a chat is already open). The chat then runs the normal
+`chat:show` → accept/miss flow.
 
 `robotOverrides` (`{ voice?, voiceStyle?, smallTalkFirstAfterSec?,
 smallTalkIntervalSec?, progressReportFirstAfterSec?,

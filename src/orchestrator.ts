@@ -528,6 +528,17 @@ export class Orchestrator {
     this.log(session, 'chat:falseClick', { chatId: chatId ?? null });
   }
 
+  /** Admin button: open a live chat right now. Demo runs only — study runs keep the fixed schedule. */
+  spawnChat(): Result {
+    const session = this.activeSession;
+    if (!session) return { ok: false, error: 'No active session.' };
+    if (!session.demo) return { ok: false, error: 'Chats can only be spawned manually in demo runs.' };
+    const result = session.spawnChat();
+    if (!result.ok) return result;
+    console.log(`[Session] Chat spawned manually: ${result.chatId}`);
+    return { ok: true, value: undefined };
+  }
+
   statusPayload(): object {
     const session = this.activeSession;
     // Connection state for the admin panel, independent of any session
