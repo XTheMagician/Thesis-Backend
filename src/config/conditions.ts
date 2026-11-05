@@ -20,9 +20,9 @@ import { CATEGORY_LABELS, DEFAULT_CATEGORY_COUNT, initialSides, type CategoryCou
 // steered via instructions.
 export const DEFAULT_VOICE = 'alloy';
 export const DEFAULT_VOICE_STYLE = 'Speak like a gender neutral robot.';
-export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 20;
-export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 60;
-export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 45;
+export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 30;
+export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 80;
+export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 60;
 export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 90;
 export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
@@ -81,7 +81,7 @@ const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
 // Asked once the task is running instead of during the briefing (the mic
 // is off there). No scripted reply — the model answers the name naturally.
 const TALKATIVE_NAME_QUESTION = 'Ach, ich habe dich noch gar nicht gefragt: Wie heißt du eigentlich?';
-const TALKATIVE_NAME_QUESTION_AFTER_SEC = 10;
+const TALKATIVE_NAME_QUESTION_AFTER_SEC = 8;
 
 // Overrides the condition's behaviour rules for the briefing only
 const TALKATIVE_BRIEFING_RULE =
@@ -160,18 +160,19 @@ const SMALL_TALK_TOPICS = [
   'ob der Teilnehmer schon Pläne für das Wochenende hat',
   'das Wetter heute',
   'was der Teilnehmer gerne in seiner Freizeit macht',
-  'ob der Teilnehmer lieber Kaffee oder Tee trinkt',
   'welche Musik der Teilnehmer gerne hört',
-  'ob der Teilnehmer ein Morgenmensch oder ein Abendmensch ist',
   'welche Serien oder Filme der Teilnehmer zuletzt geschaut hat',
   'ob der Teilnehmer gerne kocht und was sein Lieblingsessen ist',
   'ob der Teilnehmer Haustiere hat oder gerne welche hätte',
   'wohin der Teilnehmer gerne einmal reisen würde',
   'ob der Teilnehmer Sport macht oder einem Verein angehört',
-  'welche Jahreszeit der Teilnehmer am liebsten mag',
   'ob der Teilnehmer gerade ein gutes Buch liest oder einen Podcast hört',
-  'was der Teilnehmer studiert oder beruflich macht',
   'ob der Teilnehmer schon einmal mit einem Roboter zusammengearbeitet hat',
+  'wie lange der Teilnehmer schon in Würzburg ist, z.B. „Wie lange bist du schon in Würzburg?“',
+  'wie lange der Teilnehmer schon hier arbeitet, z.B. „Wie lange arbeitest du denn schon hier? Ich glaube, wir haben uns bisher noch nicht getroffen.“',
+  'ob der Teilnehmer gerne hier arbeitet, z.B. „Und, arbeitest du gerne hier?“',
+  'dass man hier immer wieder nette Leute trifft, z.B. „Man trifft immer wieder nette Leute hier, mit denen man sich unterhalten kann.“',
+  'ob der Teilnehmer in Würzburg studiert, z.B. „Studierst du hier in Würzburg?“',
 ];
 
 export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
@@ -218,7 +219,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkEnabled: true,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
-    smallTalkJitter: 0.3,
+    smallTalkJitter: 0.1,
     smallTalkTopics: SMALL_TALK_TOPICS,
     nameQuestion: TALKATIVE_NAME_QUESTION,
     nameQuestionAfterSec: TALKATIVE_NAME_QUESTION_AFTER_SEC,
@@ -226,7 +227,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     progressReportsEnabled: true,
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
     progressReportIntervalSec: DEFAULT_PROGRESS_REPORT_INTERVAL_SEC,
-    progressReportJitter: 0.2,
+    progressReportJitter: 0.1,
 
     impulseQuietSec: DEFAULT_IMPULSE_QUIET_SEC,
   },
@@ -268,7 +269,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkEnabled: false,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
-    smallTalkJitter: 0.3,
+    smallTalkJitter: 0.1,
     smallTalkTopics: SMALL_TALK_TOPICS,
     // No names in the quiet condition
     nameQuestion: '',
@@ -277,7 +278,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     progressReportsEnabled: true,
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
     progressReportIntervalSec: DEFAULT_PROGRESS_REPORT_INTERVAL_SEC,
-    progressReportJitter: 0.2,
+    progressReportJitter: 0.1,
 
     impulseQuietSec: DEFAULT_IMPULSE_QUIET_SEC,
   },
