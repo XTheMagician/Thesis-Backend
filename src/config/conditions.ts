@@ -20,10 +20,10 @@ import { CATEGORY_LABELS, DEFAULT_CATEGORY_COUNT, initialSides, type CategoryCou
 // steered via instructions.
 export const DEFAULT_VOICE = 'alloy';
 export const DEFAULT_VOICE_STYLE = 'Speak like a gender neutral robot.';
-export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 30;
-export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 80;
-export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 60;
-export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 90;
+export const DEFAULT_SMALL_TALK_FIRST_AFTER_SEC = 70;
+export const DEFAULT_SMALL_TALK_INTERVAL_SEC = 100;
+export const DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC = 35;
+export const DEFAULT_PROGRESS_REPORT_INTERVAL_SEC = 100;
 export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
 // ------------------------------------------------------------------ //
@@ -219,7 +219,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkEnabled: true,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
-    smallTalkJitter: 0.1,
+    smallTalkJitter: 0.05,
     smallTalkTopics: SMALL_TALK_TOPICS,
     nameQuestion: TALKATIVE_NAME_QUESTION,
     nameQuestionAfterSec: TALKATIVE_NAME_QUESTION_AFTER_SEC,
@@ -227,7 +227,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     progressReportsEnabled: true,
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
     progressReportIntervalSec: DEFAULT_PROGRESS_REPORT_INTERVAL_SEC,
-    progressReportJitter: 0.1,
+    progressReportJitter: 0.05,
 
     impulseQuietSec: DEFAULT_IMPULSE_QUIET_SEC,
   },
@@ -269,7 +269,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkEnabled: false,
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
-    smallTalkJitter: 0.1,
+    smallTalkJitter: 0.05,
     smallTalkTopics: SMALL_TALK_TOPICS,
     // No names in the quiet condition
     nameQuestion: '',
@@ -278,7 +278,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     progressReportsEnabled: true,
     progressReportFirstAfterSec: DEFAULT_PROGRESS_REPORT_FIRST_AFTER_SEC,
     progressReportIntervalSec: DEFAULT_PROGRESS_REPORT_INTERVAL_SEC,
-    progressReportJitter: 0.1,
+    progressReportJitter: 0.05,
 
     impulseQuietSec: DEFAULT_IMPULSE_QUIET_SEC,
   },
