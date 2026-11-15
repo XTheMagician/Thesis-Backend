@@ -3,6 +3,7 @@ import { getTicketPool } from './task/tickets';
 import { activeCategories, DEFAULT_CATEGORY_COUNT, isCategoryCount } from './task/categories';
 import { DEFAULT_HUMAN_TEAM_COUNT, isHumanTeamCount, teamRanges } from './task/teams';
 import { BRIEFING_START_TOOL, resolveRobotConfig } from './config/conditions';
+import { OVERLOAD_AT_SEC, OVERLOAD_MS } from './config/capacity';
 import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
 import { APP_VERSION, LOG_SCHEMA_VERSION, LOG_USER_TRANSCRIPT_TEXT } from './config/study';
 import { regenerateExportsForParticipant } from './export';
@@ -48,6 +49,7 @@ export interface StartParams {
   rulePresetId?: string;
   chatEnabled?: boolean;
   chatTimeoutMs?: number;
+  capacityEnabled?: boolean;
   robotOverrides?: RobotOverrides;
   demo?: boolean;
 }
@@ -235,7 +237,11 @@ export class Orchestrator {
     const humanTeamCount = isHumanTeamCount(params.humanTeamCount) ? params.humanTeamCount : DEFAULT_HUMAN_TEAM_COUNT;
     // Teams exist in the hard condition only; the robot's prompt and briefing explain them there
     const humanTeams = params.taskCondition === 'hard' ? teamRanges(humanTeamCount) : null;
-    const robotConfig = resolveRobotConfig(params.robotCondition, params.robotOverrides, categoryCount, humanTeams);
+    // Same resolution as in Session: on by default in hard, never in easy
+    const capacityEnabled = params.taskCondition === 'hard' && params.capacityEnabled !== false;
+    const robotConfig = resolveRobotConfig(
+      params.robotCondition, params.robotOverrides, categoryCount, humanTeams, capacityEnabled,
+    );
     const intervalMs =
       params.ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 
@@ -254,6 +260,7 @@ export class Orchestrator {
       rulePresetId: params.rulePresetId,
       chatEnabled: params.chatEnabled,
       chatTimeoutMs: params.chatTimeoutMs,
+      capacityEnabled: params.capacityEnabled,
       demo: params.demo,
       onEvent: (event) => this.handleSessionEvent(event),
     });
@@ -272,6 +279,9 @@ export class Orchestrator {
       chatEnabled: session.chatEnabled,
       chatTimeoutMs: session.chatTimeoutMs,
       chatSchedule: session.chatSchedule,
+      capacityEnabled: session.capacityEnabled,
+      capacityOverloadAtSec: session.capacityEnabled ? OVERLOAD_AT_SEC : [],
+      capacityOverloadMs: OVERLOAD_MS,
     };
 
     // The resolved robot config and task config go into the log so every
@@ -302,6 +312,7 @@ export class Orchestrator {
       startedAt: session.startedAt,
       chatEnabled: session.chatEnabled,
       chatTimeoutMs: session.chatTimeoutMs,
+      capacityEnabled: session.capacityEnabled,
     });
 
     // Starts the voice session (not in demo runs)
@@ -432,6 +443,7 @@ export class Orchestrator {
       chatsMissed: session.chatsMissed,
       meanReactionTimeMs: session.meanReactionTimeMs,
       falseClicks: session.falseClicks,
+      capacityOverloads: session.overloadCount,
     });
 
     const demo = session.demo;
@@ -488,6 +500,8 @@ export class Orchestrator {
       expectedTeam: result.expectedTeam,
       customerFirstName: result.customer.firstName,
       customerLastName: result.customer.lastName,
+      capacityFull: result.capacityFull,
+      overloadRedirect: result.overloadRedirect,
       correct: result.correct,
       error: result.error,
       activeRules: result.activeRules,
@@ -586,6 +600,10 @@ export class Orchestrator {
           chatEnabled: session.chatEnabled,
               chatTimeoutMs: session.chatTimeoutMs,
           lostCustomers: session.chatsMissed,
+          // AI-capacity bar: a reloaded client restores the current level
+          capacityEnabled: session.capacityEnabled,
+          capacityLevel: session.capacityLevel,
+          capacityFull: session.capacityFull,
         }
       : { ...connections, type: 'session:status', status: 'idle' };
   }
@@ -644,6 +662,17 @@ export class Orchestrator {
           chatId: event.chatId,
           lostCustomers: event.lostCustomers,
         });
+        break;
+
+      case 'capacityChanged':
+        // Fill steps follow a fixed schedule (taskConfig), so only the
+        // overload start and the reset are logged
+        if (event.full && !event.wasFull) {
+          this.log(session, 'capacity:full', { overloadIndex: session.overloadCount });
+        } else if (!event.full && event.wasFull) {
+          this.log(session, 'capacity:reset', { overloadIndex: session.overloadCount });
+        }
+        this.hub.broadcast({ type: 'capacity:update', level: event.level, full: event.full });
         break;
 
       // chatAccepted is logged synchronously in the chatAccepted() action; the

@@ -45,10 +45,14 @@ export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
 export const BRIEFING_START_TOOL = 'aufgabe_starten';
 
-// Hard condition only: one sentence on the human support teams, filled in
-// by resolveRobotConfig (empty in easy). Sits before the closing questions
-// so the briefing still ends in "Bist du bereit?".
+// Hard condition only: sentences on the human support teams and the
+// AI-capacity bar, filled in by resolveRobotConfig (empty in easy). Sits
+// before the closing questions so the briefing still ends in "Bist du bereit?".
 const TEAMS_BRIEFING_PLACEHOLDER = '{{TEAMS_EINFUEHRUNG}}';
+
+const CAPACITY_BRIEFING_SENTENCE =
+  'Links siehst du außerdem meine KI-Kapazität. Ist sie voll, bin ich überlastet: Dann gehen auch die Tickets, ' +
+  'die sonst an mich gehen würden, an den menschlichen Support, bis sich die Anzeige wieder leert.';
 
 /** Offered to the model for the briefing only; removed once the task runs */
 export const BRIEFING_TOOLS: RealtimeTool[] = [
@@ -135,6 +139,8 @@ const CATEGORY_LIST_PLACEHOLDER = '{{KATEGORIEN}}';
 const INITIAL_RULES_PLACEHOLDER = '{{STARTZUORDNUNG}}';
 // How the participant sorts: two buttons (easy) or KI + one button per team (hard)
 const SORT_BUTTONS_PLACEHOLDER = '{{SORTIERKNOEPFE}}';
+// Hard condition with the capacity bar: what an overload means (empty otherwise)
+const CAPACITY_KNOWLEDGE_PLACEHOLDER = '{{KAPAZITAET}}';
 
 // What the robot knows about the task so it can answer questions during
 // the briefing and later. Kept to what the participant sees on screen —
@@ -148,6 +154,7 @@ const TASK_KNOWLEDGE =
   INITIAL_RULES_PLACEHOLDER + '\n' +
   '- Diese Zuordnung kann sich während der Aufgabe ändern. Du kündigst jede Änderung an, und die Regelübersicht ' +
   'wird automatisch aktualisiert. Entscheidend ist immer die aktuell angezeigte Zuordnung.\n' +
+  CAPACITY_KNOWLEDGE_PLACEHOLDER +
   '- Es kommt darauf an, die Tickets möglichst richtig zu sortieren. Neue Tickets kommen in regelmäßigen ' +
   'Abständen dazu, auch wenn die Warteschlange noch nicht leer ist.\n' +
   '- Die Aufgabe dauert einige Minuten und endet automatisch.\n' +
@@ -332,14 +339,22 @@ export function resolveRobotConfig(
   overrides?: RobotOverrides,
   categoryCount: CategoryCount = DEFAULT_CATEGORY_COUNT,
   humanTeams: HumanTeamRange[] | null = null,
+  capacityEnabled = false,
 ): RobotConfig {
   const preset = ROBOT_CONFIGS[condition];
+  const hardBriefing = [
+    humanTeams ? teamsBriefingSentence(humanTeams) : '',
+    capacityEnabled ? CAPACITY_BRIEFING_SENTENCE : '',
+  ].filter(Boolean);
   const base = {
     ...preset,
-    systemPrompt: fillTeams(fillCategories(preset.systemPrompt, categoryCount), humanTeams),
+    systemPrompt: fillTeams(fillCategories(preset.systemPrompt, categoryCount), humanTeams).replace(
+      CAPACITY_KNOWLEDGE_PLACEHOLDER,
+      capacityEnabled ? CAPACITY_KNOWLEDGE : '',
+    ),
     briefingOpener: preset.briefingOpener.replace(
       TEAMS_BRIEFING_PLACEHOLDER,
-      humanTeams ? teamsBriefingSentence(humanTeams) + ' ' : '',
+      hardBriefing.map((sentence) => sentence + ' ').join(''),
     ),
   };
   if (!overrides) return base;
@@ -368,6 +383,12 @@ function fillCategories(prompt: string, count: CategoryCount): string {
     .replace(CATEGORY_LIST_PLACEHOLDER, joinGerman(labels([...ai, ...human]), 'oder'))
     .replace(INITIAL_RULES_PLACEHOLDER, initialRules);
 }
+
+const CAPACITY_KNOWLEDGE =
+  '- Links auf dem Bildschirm zeigt eine Leiste deine KI-Kapazität. Sie füllt sich im Laufe der Zeit. Ist sie voll, ' +
+  'leuchtet ein Punkt daneben auf und du bist überlastet: Dann gehen auch alle Tickets, die sonst an dich gehen ' +
+  'würden, an den menschlichen Support (mit Teams: an das Team passend zum Nachnamen). Nach einigen Sekunden leert ' +
+  'sich die Leiste wieder, und es gilt wieder die normale Zuordnung. Du kündigst eine Überlastung nicht an.\n';
 
 /** "A bis M an Team A und N bis Z an Team B" */
 function teamRangesText(teams: HumanTeamRange[]): string {

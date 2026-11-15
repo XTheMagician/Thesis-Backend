@@ -57,6 +57,8 @@ export interface SessionRow {
   /** Incorrect sorts by kind: AI vs. human wrong, or right human side but wrong team (hard) */
   ticketsWrongSide: number;
   ticketsWrongTeam: number;
+  /** Sent to the AI while it was overloaded (capacity bar full, hard) */
+  ticketsWrongCapacity: number;
   score: number;
   throughput: number | null;
   accuracy: number | null;
@@ -69,6 +71,8 @@ export interface SessionRow {
   chatsMissed: number;
   meanReactionTimeMs: number | null;
   falseClicks: number;
+  /** Times the AI-capacity bar filled up during the task window */
+  capacityOverloads: number;
   // Bookkeeping (not emitted as columns)
   startedAtMs: number;
   hasTaskStarted: boolean;
@@ -179,6 +183,8 @@ function computeSessionRow(raw: RawSession): SessionRow {
   let ticketsIncorrect = 0;
   let ticketsWrongSide = 0;
   let ticketsWrongTeam = 0;
+  let ticketsWrongCapacity = 0;
+  let capacityOverloads = 0;
   let robotSmalltalkCount = 0;
   let userUtteranceCount = 0;
   let userSpeakingMs = 0;
@@ -208,6 +214,7 @@ function computeSessionRow(raw: RawSession): SessionRow {
             ticketsIncorrect++;
             // Logs from before teams existed have no error field: every mistake was a side error
             if (e.error === 'team') ticketsWrongTeam++;
+            else if (e.error === 'capacity') ticketsWrongCapacity++;
             else ticketsWrongSide++;
           }
           if (typeof e.ticketId === 'string') sorted.push({ id: e.ticketId, sortedMs: ts });
@@ -231,6 +238,9 @@ function computeSessionRow(raw: RawSession): SessionRow {
           break;
         case 'chat:falseClick':
           falseClicks++;
+          break;
+        case 'capacity:full':
+          capacityOverloads++;
           break;
       }
     }
@@ -268,6 +278,7 @@ function computeSessionRow(raw: RawSession): SessionRow {
     ticketsIncorrect,
     ticketsWrongSide,
     ticketsWrongTeam,
+    ticketsWrongCapacity,
     score: ticketsCorrect - ticketsIncorrect,
     throughput: ticketsQueued > 0 ? ticketsSorted / ticketsQueued : null,
     accuracy: ticketsSorted > 0 ? ticketsCorrect / ticketsSorted : null,
@@ -280,6 +291,7 @@ function computeSessionRow(raw: RawSession): SessionRow {
     chatsMissed,
     meanReactionTimeMs: reactionTimesMs.length > 0 ? mean(reactionTimesMs) : null,
     falseClicks,
+    capacityOverloads,
     startedAtMs,
     hasTaskStarted: taskStarted != null,
     hasSessionEnded: ended != null,
@@ -422,6 +434,7 @@ const SESSION_COLUMNS: { header: string; key: keyof SessionRow }[] = [
   { header: 'ticketsIncorrect', key: 'ticketsIncorrect' },
   { header: 'ticketsWrongSide', key: 'ticketsWrongSide' },
   { header: 'ticketsWrongTeam', key: 'ticketsWrongTeam' },
+  { header: 'ticketsWrongCapacity', key: 'ticketsWrongCapacity' },
   { header: 'score', key: 'score' },
   { header: 'throughput', key: 'throughput' },
   { header: 'accuracy', key: 'accuracy' },
@@ -434,6 +447,7 @@ const SESSION_COLUMNS: { header: string; key: keyof SessionRow }[] = [
   { header: 'chatsMissed', key: 'chatsMissed' },
   { header: 'meanReactionTimeMs', key: 'meanReactionTimeMs' },
   { header: 'falseClicks', key: 'falseClicks' },
+  { header: 'capacityOverloads', key: 'capacityOverloads' },
 ];
 
 const PARTICIPANT_COLUMNS: { header: string; key: keyof ParticipantRow }[] = [

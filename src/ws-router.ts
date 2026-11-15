@@ -58,6 +58,7 @@ export function handleMessage(ctx: RouterContext): void {
         chatEnabled: msg.params?.chatEnabled,
         chatTimeoutMs:
           msg.params?.chatTimeoutMs != null ? cleanChatTimeoutMs(msg.params.chatTimeoutMs) : undefined,
+        capacityEnabled: msg.params?.capacityEnabled,
         robotOverrides: msg.params?.robotOverrides,
         demo,
       });

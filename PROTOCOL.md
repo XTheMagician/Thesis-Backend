@@ -64,7 +64,7 @@ echo cancellation is confirmed reliable on device.
 
 Client → server: `session:start` (`params: { participantId, taskCondition:
 easy|hard, robotCondition: talkative|quiet, ticketIntervalMs?, ticketJitter?,
-categoryCount?, humanTeamCount?, sessionTimerMs?, ruleSchedule?, robotOverrides?, demo? }`), `session:begin`,
+categoryCount?, humanTeamCount?, sessionTimerMs?, ruleSchedule?, capacityEnabled?, robotOverrides?, demo? }`), `session:begin`,
 `session:pause`, `session:resume`, `session:end`, `session:status`,
 `ticket:sort` (`ticketId`, `decision: ai|human`, `team?: A|B|C`).
 
@@ -144,6 +144,32 @@ matches the surname. `ticket:sorted` echoes `team`; the log line adds
 `error: none|side|team` (side = AI vs. human wrong; team = right side,
 wrong team). The export splits `ticketsIncorrect` into `ticketsWrongSide`
 and `ticketsWrongTeam`.
+
+### AI-capacity bar (hard)
+
+In the hard condition (`capacityEnabled`, default `true`; always off in
+easy) a bar shows the AI's capacity. It fills in small, irregular steps on
+a fixed schedule (`src/config/capacity.ts`, seeded, identical for every
+participant, also in demo runs) and reaches 100 % at 66, 119, 170, 215 and
+266 s after the task start (each fill takes 30–70 s). While it is full, the
+AI is overloaded for 10 s: every
+ticket whose rule says AI must go to human support instead (with teams, to
+the team matching the surname). Then the bar resets to 0 and fills again.
+The schedule follows active task time, so pauses shift it.
+
+Server → all: `capacity:update` (`level: 0–100`, `full`) on every step.
+`session:started` carries `capacityEnabled`; `session:status` adds
+`capacityEnabled`, `capacityLevel`, `capacityFull`.
+
+Scoring is decided when the sort arrives. During an overload, sending an
+AI ticket to the AI is wrong with `error: "capacity"`; sort log lines add
+`capacityFull` and `overloadRedirect` (the rule said AI, the overload
+redirected it). The log records `capacity:full` and `capacity:reset`
+(with `overloadIndex`); `taskConfig` holds `capacityOverloadAtSec` and
+`capacityOverloadMs`, and `session:ended` adds `capacityOverloads`. The
+export adds `ticketsWrongCapacity` and `capacityOverloads`. The robot's
+hard briefing and task knowledge explain the bar; it does not announce
+overloads.
 
 Consecutive tickets never share a category: every pass through the pool is
 ordered so no category follows itself, including across the boundary to the

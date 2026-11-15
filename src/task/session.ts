@@ -16,6 +16,7 @@ import type {
 import { shuffleNoRepeat } from './tickets';
 import { initialRules, type CategoryCount } from './categories';
 import { DEFAULT_HUMAN_TEAM_COUNT, randomCustomer, teamForSurname, teamRanges, type HumanTeamCount } from './teams';
+import { CAPACITY_SCHEDULE, type CapacityEvent } from '../config/capacity';
 import {
   CHAT_SCHEDULE_SEC,
   CHAT_FALLBACK_GRACE_MS,
@@ -36,6 +37,7 @@ export type SessionEvent =
   | { kind: 'chatShow'; chatId: string; scheduledOnsetSec: number | null }
   | { kind: 'chatAccepted'; chatId: string; reactionTimeMs: number }
   | { kind: 'chatMissed'; chatId: string; reason: ChatMissReason; lostCustomers: number }
+  | { kind: 'capacityChanged'; level: number; full: boolean; wasFull: boolean }
   | { kind: 'timerExpired' };
 
 export interface SessionParams {
@@ -56,6 +58,8 @@ export interface SessionParams {
   /** Live-chat side task (resolved: default on in hard, forced off in easy; always on in demo runs). */
   chatEnabled?: boolean;
   chatTimeoutMs?: number;
+  /** AI-capacity bar (resolved like chatEnabled: default on in hard, forced off in easy). */
+  capacityEnabled?: boolean;
   demo?: boolean;
   onEvent: (event: SessionEvent) => void;
 }
@@ -116,6 +120,16 @@ export class Session {
   /** Reaction times (ms) of accepted chats, for the mean in session:ended. */
   readonly reactionTimesMs: number[] = [];
 
+  // AI-capacity bar (hard condition only). The backend owns the fixed
+  // schedule; while the bar is full, AI tickets must go to human support.
+  readonly capacityEnabled: boolean;
+  readonly capacitySchedule: readonly CapacityEvent[];
+  capacityLevel = 0;
+  capacityFull = false;
+  /** Number of overloads (bar reached 100 %) so far */
+  overloadCount = 0;
+  private capacityTimers: ReturnType<typeof setTimeout>[] = [];
+
   private readonly onEvent: (event: SessionEvent) => void;
   private ticketPool: Ticket[];
   private readonly ruleSchedule: RuleScheduleEntry[];
@@ -164,6 +178,9 @@ export class Session {
     this.chatEnabled = this.demo || (params.taskCondition === 'hard' && params.chatEnabled !== false);
     this.chatTimeoutMs = params.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
     this.chatSchedule = this.chatEnabled && !this.demo ? CHAT_SCHEDULE_SEC : [];
+    // Unlike the live chat, the capacity bar runs on its schedule in demo runs too
+    this.capacityEnabled = params.taskCondition === 'hard' && params.capacityEnabled !== false;
+    this.capacitySchedule = this.capacityEnabled ? CAPACITY_SCHEDULE : [];
     this.onEvent = params.onEvent;
 
     const tag = this.demo ? '-demo' : '';
@@ -185,6 +202,7 @@ export class Session {
     this.scheduleNextTicket();
     this.scheduleRuleTimers();
     this.scheduleChatTimers();
+    this.scheduleCapacityTimers();
     this.scheduleSessionTimer(this.sessionTimerMs ?? undefined);
   }
 
@@ -214,6 +232,8 @@ export class Session {
     // open chat keeps its remaining window frozen so paused time doesn't count.
     this.chatTimers.forEach(clearTimeout);
     this.chatTimers = [];
+    this.capacityTimers.forEach(clearTimeout);
+    this.capacityTimers = [];
     if (this.chatFallbackTimer && this.chatFallbackDeadline != null) {
       this.chatFallbackRemainingMs = Math.max(0, this.chatFallbackDeadline - Date.now());
       clearTimeout(this.chatFallbackTimer);
@@ -234,6 +254,7 @@ export class Session {
     this.scheduleRuleTimers();
 
     this.scheduleChatTimers();
+    this.scheduleCapacityTimers();
     if (this.activeChat && this.chatFallbackRemainingMs != null) {
       this.armChatFallback(this.chatFallbackRemainingMs);
       this.chatFallbackRemainingMs = null;
@@ -257,6 +278,7 @@ export class Session {
     if (this.sessionTimer) clearTimeout(this.sessionTimer);
     this.ruleTimers.forEach(clearTimeout);
     this.chatTimers.forEach(clearTimeout);
+    this.capacityTimers.forEach(clearTimeout);
     if (this.chatFallbackTimer) clearTimeout(this.chatFallbackTimer);
   }
 
@@ -294,9 +316,15 @@ export class Session {
     this.onEvent({ kind: 'chatMissed', chatId, reason, lostCustomers: this.chatsMissed });
   }
 
-  /** Expected team for a ticket under the current rules; null if it isn't a team decision. */
+  /** Where a ticket must go right now: its rule, except that an overloaded AI sends AI tickets to humans. */
+  expectedSideFor(ticket: QueuedTicket): Decision {
+    const side = this.activeRules[ticket.category] ?? 'human';
+    return side === 'ai' && this.capacityFull ? 'human' : side;
+  }
+
+  /** Expected team for a ticket right now; null if it isn't a team decision. */
   expectedTeamFor(ticket: QueuedTicket): HumanTeam | null {
-    if (!this.humanTeams || this.activeRules[ticket.category] !== 'human') return null;
+    if (!this.humanTeams || this.expectedSideFor(ticket) !== 'human') return null;
     return teamForSurname(ticket.customer.lastName, this.humanTeams);
   }
 
@@ -311,9 +339,13 @@ export class Session {
     const [ticket] = this.queue.splice(idx, 1);
     // A team only counts for human decisions in sessions that have teams
     const chosenTeam = decision === 'human' && this.humanTeams ? team : null;
+    const expectedSide = this.expectedSideFor(ticket);
     const expectedTeam = this.expectedTeamFor(ticket);
+    const overloadRedirect = this.capacityFull && this.activeRules[ticket.category] === 'ai';
     const error: SortError =
-      this.activeRules[ticket.category] !== decision ? 'side' : expectedTeam && chosenTeam !== expectedTeam ? 'team' : 'none';
+      decision !== expectedSide
+        ? overloadRedirect ? 'capacity' : 'side'
+        : expectedTeam && chosenTeam !== expectedTeam ? 'team' : 'none';
     const correct = error === 'none';
     const sortedAt = Date.now();
 
@@ -325,6 +357,8 @@ export class Session {
       team: chosenTeam,
       expectedTeam,
       customer: ticket.customer,
+      capacityFull: this.capacityFull,
+      overloadRedirect,
       correct,
       error,
       activeRules: { ...this.activeRules },
@@ -441,6 +475,31 @@ export class Session {
       }, remainingMs);
       this.chatTimers.push(timer);
     });
+  }
+
+  /**
+   * Arm one timer per not-yet-due capacity step. Recomputed from elapsed
+   * active time on begin and resume, like the rule and chat timers; the
+   * current level and overload state simply carry over a pause.
+   */
+  private scheduleCapacityTimers(): void {
+    if (this.capacitySchedule.length === 0) return;
+
+    const elapsed = this.elapsedActiveMs;
+    for (const event of this.capacitySchedule) {
+      const remainingMs = event.atMs - elapsed;
+      if (remainingMs <= 0) continue; // already applied
+
+      const timer = setTimeout(() => {
+        if (this.status !== 'running') return;
+        const wasFull = this.capacityFull;
+        this.capacityLevel = event.level;
+        this.capacityFull = event.full;
+        if (event.full && !wasFull) this.overloadCount++;
+        this.onEvent({ kind: 'capacityChanged', level: event.level, full: event.full, wasFull });
+      }, remainingMs);
+      this.capacityTimers.push(timer);
+    }
   }
 
   /**

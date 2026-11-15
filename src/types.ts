@@ -30,9 +30,10 @@ export interface Customer {
 
 /**
  * Sort mistakes, for analysis: `side` = AI vs. human support wrong;
- * `team` = human support was right but the team was not (hard only).
+ * `team` = human support was right but the team was not (hard only);
+ * `capacity` = sent to the AI while it was overloaded (hard only).
  */
-export type SortError = 'none' | 'side' | 'team';
+export type SortError = 'none' | 'side' | 'team' | 'capacity';
 export type TicketCategory =
   | 'software'
   | 'shipping'
@@ -144,6 +145,10 @@ export interface SortResult {
   /** Correct team, if the ticket belonged to human support with teams active */
   expectedTeam: HumanTeam | null;
   customer: Customer;
+  /** The AI was overloaded (capacity bar full) when the ticket was sorted */
+  capacityFull: boolean;
+  /** The ticket's rule said AI, but the overload sent it to human support */
+  overloadRedirect: boolean;
   correct: boolean;
   error: SortError;
   activeRules: ActiveRules;
@@ -195,6 +200,8 @@ export interface SessionStartMessage {
     chatEnabled?: boolean;
     /** How long a chat stays open before it counts as a lost customer. */
     chatTimeoutMs?: number;
+    /** AI-capacity bar (hard): on by default in hard, always off in easy. */
+    capacityEnabled?: boolean;
     /** Demo run: no briefing and no voice session, the task starts at once.
      *  Live chat is always shown but has no schedule — chats come from chat:spawn. */
     demo?: boolean;
