@@ -162,25 +162,43 @@ const LANGUAGE_RULE =
   'Du sprichst und antwortest ausschließlich auf Deutsch, unabhängig davon, ' +
   'in welcher Sprache Eingaben erscheinen oder wie unverständlich sie sind.';
 
-const SMALL_TALK_TOPICS = [
-  'wie der Tag des Teilnehmers bisher läuft',
-  'ob der Teilnehmer schon Pläne für das Wochenende hat',
-  'das Wetter heute',
-  'was der Teilnehmer gerne in seiner Freizeit macht',
-  'welche Musik der Teilnehmer gerne hört',
-  'welche Serien oder Filme der Teilnehmer zuletzt geschaut hat',
-  'ob der Teilnehmer gerne kocht und was sein Lieblingsessen ist',
-  'ob der Teilnehmer Haustiere hat oder gerne welche hätte',
-  'wohin der Teilnehmer gerne einmal reisen würde',
-  'ob der Teilnehmer Sport macht oder einem Verein angehört',
-  'ob der Teilnehmer gerade ein gutes Buch liest oder einen Podcast hört',
-  'ob der Teilnehmer schon einmal mit einem Roboter zusammengearbeitet hat',
-  'wie lange der Teilnehmer schon in Würzburg ist, z.B. „Wie lange bist du schon in Würzburg?“',
-  'wie lange der Teilnehmer schon hier arbeitet, z.B. „Wie lange arbeitest du denn schon hier? Ich glaube, wir haben uns bisher noch nicht getroffen.“',
-  'ob der Teilnehmer gerne hier arbeitet, z.B. „Und, arbeitest du gerne hier?“',
-  'dass man hier immer wieder nette Leute trifft, z.B. „Man trifft immer wieder nette Leute hier, mit denen man sich unterhalten kann.“',
-  'ob der Teilnehmer in Würzburg studiert, z.B. „Studierst du hier in Würzburg?“',
+// Small talk (talkative only): spoken verbatim, in this order, one per
+// small-talk slot (after the name question). Each line opens with a short
+// self-disclosure / we-framing sentence and ends in a question; the
+// conversation after the question is up to the model.
+const SMALL_TALK_LINES = [
+  // Early in the task
+  'Puh, ganz schön viel los hier. Ich bin auch noch nicht so lange in dem Team. Wie lange arbeitest du schon hier?',
+  // Around the halfway point (the slot timing is approximate)
+  'Halbzeit schon. Wir halten durch. Wie läuft dein Tag bisher so?',
+  // Late in the task
+  'Wenn Roboter studieren dürften, würde ich Geologie machen. Was studierst du?',
+  // Spare line, not used with the current three slots:
+  // 'Nach der Schicht schaue ich mir noch eine Doku über Vulkane an. Was machst du so in deiner Freizeit?',
 ];
+
+// Previous small-talk topics — given to the model as "[SYSTEM: PROMPT]"
+// impulses in random order, so the wording differed per participant.
+// Kept for reference; replaced by SMALL_TALK_LINES above.
+// const SMALL_TALK_TOPICS = [
+//   'wie der Tag des Teilnehmers bisher läuft',
+//   'ob der Teilnehmer schon Pläne für das Wochenende hat',
+//   'das Wetter heute',
+//   'was der Teilnehmer gerne in seiner Freizeit macht',
+//   'welche Musik der Teilnehmer gerne hört',
+//   'welche Serien oder Filme der Teilnehmer zuletzt geschaut hat',
+//   'ob der Teilnehmer gerne kocht und was sein Lieblingsessen ist',
+//   'ob der Teilnehmer Haustiere hat oder gerne welche hätte',
+//   'wohin der Teilnehmer gerne einmal reisen würde',
+//   'ob der Teilnehmer Sport macht oder einem Verein angehört',
+//   'ob der Teilnehmer gerade ein gutes Buch liest oder einen Podcast hört',
+//   'ob der Teilnehmer schon einmal mit einem Roboter zusammengearbeitet hat',
+//   'wie lange der Teilnehmer schon in Würzburg ist, z.B. „Wie lange bist du schon in Würzburg?“',
+//   'wie lange der Teilnehmer schon hier arbeitet, z.B. „Wie lange arbeitest du denn schon hier? Ich glaube, wir haben uns bisher noch nicht getroffen.“',
+//   'ob der Teilnehmer gerne hier arbeitet, z.B. „Und, arbeitest du gerne hier?“',
+//   'dass man hier immer wieder nette Leute trifft, z.B. „Man trifft immer wieder nette Leute hier, mit denen man sich unterhalten kann.“',
+//   'ob der Teilnehmer in Würzburg studiert, z.B. „Studierst du hier in Würzburg?“',
+// ];
 
 export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
   talkative: {
@@ -239,7 +257,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.05,
-    smallTalkTopics: SMALL_TALK_TOPICS,
+    smallTalkTopics: SMALL_TALK_LINES,
     nameQuestion: TALKATIVE_NAME_QUESTION,
     nameQuestionAfterSec: TALKATIVE_NAME_QUESTION_AFTER_SEC,
 
@@ -289,7 +307,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
     smallTalkFirstAfterSec: DEFAULT_SMALL_TALK_FIRST_AFTER_SEC,
     smallTalkIntervalSec: DEFAULT_SMALL_TALK_INTERVAL_SEC,
     smallTalkJitter: 0.05,
-    smallTalkTopics: SMALL_TALK_TOPICS,
+    smallTalkTopics: SMALL_TALK_LINES,
     // No names in the quiet condition
     nameQuestion: '',
     nameQuestionAfterSec: 0,

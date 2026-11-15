@@ -71,6 +71,7 @@ export interface RobotConfig {
   smallTalkFirstAfterSec: number;
   smallTalkIntervalSec: number;
   smallTalkJitter: number; // 0..1, interval randomization like ticketJitter
+  /** Small-talk lines, spoken verbatim in this order, one per slot */
   smallTalkTopics: string[];
   /** Asked verbatim once, this long after the task starts (if the robot or
    *  participant is talking right then, as soon as that turn is over);

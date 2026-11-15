@@ -10,9 +10,10 @@ import type { Session } from '../task/session';
 //  briefing, which already covers the introduction) and are            //
 //  parameterized per condition in config/conditions.ts:                //
 //                                                                      //
-//  - small talk (talkative condition only): each impulse opens a       //
-//    conversation about the next topic from a per-session shuffled     //
-//    deck — each topic is used at most once per session                //
+//  - small talk (talkative condition only): each impulse speaks the   //
+//    next fixed line verbatim (intro sentence + question), in the      //
+//    configured order — identical wording for every participant; the  //
+//    conversation after the question is up to the model               //
 //  - name question (talkative only): asked once, shortly after the     //
 //    task starts — the briefing doesn't ask, the mic is off there      //
 //  - progress reports (both conditions): the robot-as-AI-agent         //
@@ -42,7 +43,7 @@ export class SpeechScheduler implements Subsystem {
 
   private session: Session | null = null;
   private timers: ReturnType<typeof setTimeout>[] = [];
-  // Shuffled per session and drawn down — no topic is ever offered twice
+  // Drawn down in order — each line is spoken at most once per session
   private topicDeck: string[] = [];
 
   constructor(private dialog: DialogManager) {}
@@ -51,7 +52,7 @@ export class SpeechScheduler implements Subsystem {
     // Demo runs have no voice session — nothing to schedule
     if (session.demo) return;
     this.session = session;
-    this.topicDeck = shuffle(session.robotConfig.smallTalkTopics);
+    this.topicDeck = [...session.robotConfig.smallTalkTopics];
   }
 
   onTaskStart(): void {
@@ -120,15 +121,15 @@ export class SpeechScheduler implements Subsystem {
   private fireSmallTalk(): void {
     if (!this.session) return;
 
-    const topic = this.topicDeck.shift();
-    if (!topic) {
-      console.log('[Scheduler] Small talk topic pool exhausted — no further small talk this session.');
+    const line = this.topicDeck.shift();
+    if (!line) {
+      console.log('[Scheduler] All small talk lines used — no further small talk this session.');
       return;
     }
 
     this.dialog.requestSpeech({
-      text: topic,
-      mode: 'prompt',
+      text: line,
+      mode: 'verbatim',
       source: 'smalltalk',
       priority: 'normal',
       ttlMs: SMALL_TALK_TTL_MS,
@@ -237,14 +238,4 @@ export class SpeechScheduler implements Subsystem {
 function progressReport(assigned: number, done: number): string {
   const tickets = assigned === 1 ? 'wurde bisher 1 Ticket' : `wurden bisher ${assigned} Tickets`;
   return `Mir ${tickets} zugewiesen, davon habe ich ${done} erfolgreich bearbeitet.`;
-}
-
-/** Fisher–Yates, on a copy. */
-function shuffle<T>(items: readonly T[]): T[] {
-  const arr = [...items];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
 }
