@@ -13,7 +13,7 @@ import type {
   TaskCondition,
   Ticket,
 } from '../types';
-import { shuffle } from './tickets';
+import { shuffleNoRepeat } from './tickets';
 import { initialRules, type CategoryCount } from './categories';
 import { DEFAULT_HUMAN_TEAM_COUNT, randomCustomer, teamForSurname, teamRanges, type HumanTeamCount } from './teams';
 import {
@@ -154,7 +154,8 @@ export class Session {
     this.humanTeams =
       params.taskCondition === 'hard' ? teamRanges(params.humanTeamCount ?? DEFAULT_HUMAN_TEAM_COUNT) : null;
     this.sessionTimerMs = params.sessionTimerMs ?? null;
-    this.ticketPool = params.ticketPool;
+    // Consecutive tickets never share a category (also across pool rounds)
+    this.ticketPool = shuffleNoRepeat(params.ticketPool);
     this.ruleSchedule = params.ruleSchedule ?? [];
     this.demo = params.demo ?? false;
     // Live chat only exists in the hard condition; easy forces it off. Demo
@@ -388,14 +389,10 @@ export class Session {
     }, delay);
   }
 
-  /** Reshuffle the exhausted pool, avoiding the same ticket twice in a row across the boundary. */
+  /** Reshuffle the exhausted pool; the next round doesn't start with the last ticket's category. */
   private startNextRound(): void {
     const last = this.ticketPool[this.ticketPool.length - 1];
-    let next = shuffle(this.ticketPool);
-    if (next.length > 1 && next[0].id === last.id) {
-      next = [...next.slice(1), next[0]];
-    }
-    this.ticketPool = next;
+    this.ticketPool = shuffleNoRepeat(this.ticketPool, last?.category);
     this.ticketIndex = 0;
     this.ticketRound++;
     console.log(`[Session] Ticket pool exhausted — starting round ${this.ticketRound}.`);

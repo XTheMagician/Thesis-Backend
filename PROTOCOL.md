@@ -111,7 +111,7 @@ Server → all: `session:started` (with `status: briefing`, `demo`),
 `session:ended`, `ticket:queued`, `ticket:sorted`,
 `rule:changed`, `session:status` (reply).
 
-`categoryCount` (`3` or `4`, default `4`) sets how many ticket categories
+`categoryCount` (`3` or `4`, default `3`) sets how many ticket categories
 each side starts with. With 4: KI gets software, shipping, general,
 appointments; human support gets accounting, hr, returns, privacy. With 3,
 appointments and privacy are left out. Only active categories appear in
@@ -144,6 +144,10 @@ matches the surname. `ticket:sorted` echoes `team`; the log line adds
 `error: none|side|team` (side = AI vs. human wrong; team = right side,
 wrong team). The export splits `ticketsIncorrect` into `ticketsWrongSide`
 and `ticketsWrongTeam`.
+
+Consecutive tickets never share a category: every pass through the pool is
+ordered so no category follows itself, including across the boundary to the
+next pass (see `shuffleNoRepeat` in `src/task/tickets.ts`).
 
 The ticket pool never runs out: once every ticket has been dispatched it is
 reshuffled and repeated. Repeats carry a `#<round>` suffix on `id` (e.g.

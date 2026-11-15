@@ -180,7 +180,7 @@ export interface SessionStartMessage {
     condition?: string;
     ticketIntervalMs?: number;
     ticketJitter?: number;
-    /** Categories per side (3 or 4); default 4 */
+    /** Categories per side (3 or 4); default 3 */
     categoryCount?: number;
     /** Human support teams in the hard condition (2 or 3); default 2. Ignored in easy. */
     humanTeamCount?: number;

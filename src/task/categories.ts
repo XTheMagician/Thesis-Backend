@@ -10,7 +10,7 @@ import type { ActiveRules, Decision, TicketCategory } from '../types';
 
 export type CategoryCount = 3 | 4;
 
-export const DEFAULT_CATEGORY_COUNT: CategoryCount = 4;
+export const DEFAULT_CATEGORY_COUNT: CategoryCount = 3;
 
 /** Initial assignment, in display order; the first `count` entries per side are active */
 const INITIAL_SIDES: Record<Decision, TicketCategory[]> = {
