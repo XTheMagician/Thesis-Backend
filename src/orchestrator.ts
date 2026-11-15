@@ -1,6 +1,7 @@
 import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
 import { activeCategories, DEFAULT_CATEGORY_COUNT, isCategoryCount } from './task/categories';
+import { DEFAULT_HUMAN_TEAM_COUNT, isHumanTeamCount, teamRanges } from './task/teams';
 import { BRIEFING_START_TOOL, resolveRobotConfig } from './config/conditions';
 import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
 import { APP_VERSION, LOG_SCHEMA_VERSION, LOG_USER_TRANSCRIPT_TEXT } from './config/study';
@@ -9,6 +10,7 @@ import type { Hub } from './hub';
 import { splitForSpeech, type DialogManager } from './robot/dialog-manager';
 import type {
   Decision,
+  HumanTeam,
   RobotCondition,
   RobotOverrides,
   RuleScheduleEntry,
@@ -40,6 +42,7 @@ export interface StartParams {
   ticketIntervalMs?: number;
   ticketJitter?: number;
   categoryCount?: number;
+  humanTeamCount?: number;
   sessionTimerMs?: number;
   ruleSchedule?: RuleScheduleEntry[];
   rulePresetId?: string;
@@ -229,7 +232,10 @@ export class Orchestrator {
     }
 
     const categoryCount = isCategoryCount(params.categoryCount) ? params.categoryCount : DEFAULT_CATEGORY_COUNT;
-    const robotConfig = resolveRobotConfig(params.robotCondition, params.robotOverrides, categoryCount);
+    const humanTeamCount = isHumanTeamCount(params.humanTeamCount) ? params.humanTeamCount : DEFAULT_HUMAN_TEAM_COUNT;
+    // Teams exist in the hard condition only; the robot's prompt and briefing explain them there
+    const humanTeams = params.taskCondition === 'hard' ? teamRanges(humanTeamCount) : null;
+    const robotConfig = resolveRobotConfig(params.robotCondition, params.robotOverrides, categoryCount, humanTeams);
     const intervalMs =
       params.ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
 
@@ -241,6 +247,7 @@ export class Orchestrator {
       ticketIntervalMs: intervalMs,
       ticketJitter: params.ticketJitter,
       categoryCount,
+      humanTeamCount,
       sessionTimerMs: params.sessionTimerMs,
       ticketPool: getTicketPool(activeCategories(categoryCount)),
       ruleSchedule: params.ruleSchedule,
@@ -261,6 +268,7 @@ export class Orchestrator {
       durationMs: session.sessionTimerMs,
       rulePresetId: params.rulePresetId ?? (session.taskCondition === 'easy' ? 'none' : 'custom'),
       categoryCount: session.categoryCount,
+      humanTeams: session.humanTeams,
       chatEnabled: session.chatEnabled,
       chatTimeoutMs: session.chatTimeoutMs,
       chatSchedule: session.chatSchedule,
@@ -289,6 +297,7 @@ export class Orchestrator {
       ticketIntervalMs: session.ticketIntervalMs,
       ticketJitter: session.ticketJitter,
       categoryCount: session.categoryCount,
+      humanTeams: session.humanTeams,
       timerDurationMs: session.sessionTimerMs,
       startedAt: session.startedAt,
       chatEnabled: session.chatEnabled,
@@ -457,13 +466,13 @@ export class Orchestrator {
   //  Task actions                                                         //
   // ------------------------------------------------------------------ //
 
-  sortTicket(ticketId: string, decision: Decision): Result<SortResult> {
+  sortTicket(ticketId: string, decision: Decision, team: HumanTeam | null = null): Result<SortResult> {
     const session = this.activeSession;
     if (!session || session.status !== 'running') {
       return { ok: false, error: 'No active session.' };
     }
 
-    const outcome = session.sort(ticketId, decision);
+    const outcome = session.sort(ticketId, decision, team);
     if (!outcome) {
       return { ok: false, error: `Ticket ${ticketId} not found in queue.` };
     }
@@ -475,7 +484,12 @@ export class Orchestrator {
       ticketId: result.ticketId,
       ticketCategory: result.ticketCategory,
       decision: result.decision,
+      team: result.team,
+      expectedTeam: result.expectedTeam,
+      customerFirstName: result.customer.firstName,
+      customerLastName: result.customer.lastName,
       correct: result.correct,
+      error: result.error,
       activeRules: result.activeRules,
       timeInQueueMs: result.timeInQueueMs,
       totalProcessed: session.stats.total,
@@ -488,6 +502,7 @@ export class Orchestrator {
       type: 'ticket:sorted',
       ticketId,
       decision,
+      team: result.team,
       correct: result.correct,
       stats: { ...session.stats, accuracy },
       queueLength: session.queue.length,
@@ -560,7 +575,8 @@ export class Orchestrator {
           queue: session.queue,
           ticketIntervalMs: session.ticketIntervalMs,
           ticketJitter: session.ticketJitter,
-      categoryCount: session.categoryCount,
+          categoryCount: session.categoryCount,
+          humanTeams: session.humanTeams,
           timerDurationMs: session.sessionTimerMs,
           startedAt: session.startedAt,
           totalPausedMs: session.totalPausedMs,
@@ -587,6 +603,8 @@ export class Orchestrator {
         this.log(session, 'ticket:queued', {
           ticketId: event.ticket.id,
           ticketCategory: event.ticket.category,
+          customerFirstName: event.ticket.customer.firstName,
+          customerLastName: event.ticket.customer.lastName,
         });
         this.hub.broadcast({ type: 'ticket:queued', ticket: event.ticket, queueLength: event.queueLength });
         break;

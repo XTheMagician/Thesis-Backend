@@ -54,6 +54,9 @@ export interface SessionRow {
   ticketsSorted: number;
   ticketsCorrect: number;
   ticketsIncorrect: number;
+  /** Incorrect sorts by kind: AI vs. human wrong, or right human side but wrong team (hard) */
+  ticketsWrongSide: number;
+  ticketsWrongTeam: number;
   score: number;
   throughput: number | null;
   accuracy: number | null;
@@ -174,6 +177,8 @@ function computeSessionRow(raw: RawSession): SessionRow {
   let ticketsSorted = 0;
   let ticketsCorrect = 0;
   let ticketsIncorrect = 0;
+  let ticketsWrongSide = 0;
+  let ticketsWrongTeam = 0;
   let robotSmalltalkCount = 0;
   let userUtteranceCount = 0;
   let userSpeakingMs = 0;
@@ -199,7 +204,12 @@ function computeSessionRow(raw: RawSession): SessionRow {
         case 'ticket:sorted':
           ticketsSorted++;
           if (e.correct === true) ticketsCorrect++;
-          else ticketsIncorrect++;
+          else {
+            ticketsIncorrect++;
+            // Logs from before teams existed have no error field: every mistake was a side error
+            if (e.error === 'team') ticketsWrongTeam++;
+            else ticketsWrongSide++;
+          }
           if (typeof e.ticketId === 'string') sorted.push({ id: e.ticketId, sortedMs: ts });
           break;
         case 'robot:speech:request':
@@ -256,6 +266,8 @@ function computeSessionRow(raw: RawSession): SessionRow {
     ticketsSorted,
     ticketsCorrect,
     ticketsIncorrect,
+    ticketsWrongSide,
+    ticketsWrongTeam,
     score: ticketsCorrect - ticketsIncorrect,
     throughput: ticketsQueued > 0 ? ticketsSorted / ticketsQueued : null,
     accuracy: ticketsSorted > 0 ? ticketsCorrect / ticketsSorted : null,
@@ -408,6 +420,8 @@ const SESSION_COLUMNS: { header: string; key: keyof SessionRow }[] = [
   { header: 'ticketsSorted', key: 'ticketsSorted' },
   { header: 'ticketsCorrect', key: 'ticketsCorrect' },
   { header: 'ticketsIncorrect', key: 'ticketsIncorrect' },
+  { header: 'ticketsWrongSide', key: 'ticketsWrongSide' },
+  { header: 'ticketsWrongTeam', key: 'ticketsWrongTeam' },
   { header: 'score', key: 'score' },
   { header: 'throughput', key: 'throughput' },
   { header: 'accuracy', key: 'accuracy' },

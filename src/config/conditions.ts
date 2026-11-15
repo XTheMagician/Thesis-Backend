@@ -1,4 +1,4 @@
-import type { RobotCondition, RobotConfig, RobotOverrides, TicketCategory } from '../types';
+import type { HumanTeamRange, RobotCondition, RobotConfig, RobotOverrides, TicketCategory } from '../types';
 import type { RealtimeTool } from '../robot/openai-realtime';
 import { CATEGORY_LABELS, DEFAULT_CATEGORY_COUNT, initialSides, type CategoryCount } from '../task/categories';
 
@@ -45,6 +45,11 @@ export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
 export const BRIEFING_START_TOOL = 'aufgabe_starten';
 
+// Hard condition only: one sentence on the human support teams, filled in
+// by resolveRobotConfig (empty in easy). Sits before the closing questions
+// so the briefing still ends in "Bist du bereit?".
+const TEAMS_BRIEFING_PLACEHOLDER = '{{TEAMS_EINFUEHRUNG}}';
+
 /** Offered to the model for the briefing only; removed once the task runs */
 export const BRIEFING_TOOLS: RealtimeTool[] = [
   {
@@ -74,6 +79,7 @@ const TALKATIVE_BRIEFING_OPENER =
   'Du musst für jedes Ticket anhand seiner Kategorie entscheiden, ob ich, eine KI, das erledigen kann, ' +
   'oder ob es dazu menschlichen Support braucht. Es kann vorkommen, dass sich meine Fähigkeiten, ' +
   'bestimmte Tickets zu verarbeiten, im Laufe der Aufgabe ändern, das teile ich dir aber mit. ' +
+  TEAMS_BRIEFING_PLACEHOLDER +
   'Wenn du nicht weiter weißt oder eine Frage hast, melde dich einfach bei mir. Bist du bereit?';
 
 const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
@@ -107,7 +113,7 @@ const TALKATIVE_BRIEFING_RULE =
 const QUIET_BRIEFING_OPENER =
   'Unsere Aufgabe: Kundensupport-Tickets sortieren. Entscheide für jedes Ticket anhand seiner Kategorie, ' +
   'ob es an mich, die KI, geht oder an den menschlichen Support. Die Zuordnung kann sich während der Aufgabe ' +
-  'ändern, das kündige ich an. Bei Fragen melde dich. Bist du bereit?';
+  'ändern, das kündige ich an. ' + TEAMS_BRIEFING_PLACEHOLDER + 'Bei Fragen melde dich. Bist du bereit?';
 
 const QUIET_BRIEFING_START_LINE = 'Aufgabe startet.';
 
@@ -127,6 +133,8 @@ const QUIET_BRIEFING_RULE =
 // resolveRobotConfig, so the prompt lists exactly what is on screen.
 const CATEGORY_LIST_PLACEHOLDER = '{{KATEGORIEN}}';
 const INITIAL_RULES_PLACEHOLDER = '{{STARTZUORDNUNG}}';
+// How the participant sorts: two buttons (easy) or KI + one button per team (hard)
+const SORT_BUTTONS_PLACEHOLDER = '{{SORTIERKNOEPFE}}';
 
 // What the robot knows about the task so it can answer questions during
 // the briefing and later. Kept to what the participant sees on screen —
@@ -135,8 +143,7 @@ const TASK_KNOWLEDGE =
   '\n\nAufgabenwissen:\n' +
   '- Auf dem Bildschirm des Teilnehmers erscheinen nacheinander Kundensupport-Tickets in einer Warteschlange. ' +
   'Jedes Ticket hat eine Kategorie: ' + CATEGORY_LIST_PLACEHOLDER + '.\n' +
-  '- Für jedes Ticket klickt der Teilnehmer entweder auf "KI-Agent" (das Ticket geht an dich) oder auf ' +
-  '"Mensch" (das Ticket geht an den menschlichen Support).\n' +
+  SORT_BUTTONS_PLACEHOLDER + '\n' +
   '- Welche Kategorie wohin gehört, steht links auf dem Bildschirm in der Regelübersicht. ' +
   INITIAL_RULES_PLACEHOLDER + '\n' +
   '- Diese Zuordnung kann sich während der Aufgabe ändern. Du kündigst jede Änderung an, und die Regelübersicht ' +
@@ -306,9 +313,17 @@ export function resolveRobotConfig(
   condition: RobotCondition,
   overrides?: RobotOverrides,
   categoryCount: CategoryCount = DEFAULT_CATEGORY_COUNT,
+  humanTeams: HumanTeamRange[] | null = null,
 ): RobotConfig {
   const preset = ROBOT_CONFIGS[condition];
-  const base = { ...preset, systemPrompt: fillCategories(preset.systemPrompt, categoryCount) };
+  const base = {
+    ...preset,
+    systemPrompt: fillTeams(fillCategories(preset.systemPrompt, categoryCount), humanTeams),
+    briefingOpener: preset.briefingOpener.replace(
+      TEAMS_BRIEFING_PLACEHOLDER,
+      humanTeams ? teamsBriefingSentence(humanTeams) + ' ' : '',
+    ),
+  };
   if (!overrides) return base;
 
   return {
@@ -334,6 +349,32 @@ function fillCategories(prompt: string, count: CategoryCount): string {
   return prompt
     .replace(CATEGORY_LIST_PLACEHOLDER, joinGerman(labels([...ai, ...human]), 'oder'))
     .replace(INITIAL_RULES_PLACEHOLDER, initialRules);
+}
+
+/** "A bis M an Team A und N bis Z an Team B" */
+function teamRangesText(teams: HumanTeamRange[]): string {
+  return joinGerman(teams.map((t) => `${t.from} bis ${t.to} an Team ${t.team}`), 'und');
+}
+
+const TEAM_COUNT_WORDS: Record<number, string> = { 2: 'zwei', 3: 'drei' };
+
+function teamsBriefingSentence(teams: HumanTeamRange[]): string {
+  return (
+    `Tickets für den menschlichen Support gehen an eines von ${TEAM_COUNT_WORDS[teams.length] ?? teams.length} Teams, ` +
+    `je nach Anfangsbuchstabe des Nachnamens der Kundin oder des Kunden: ${teamRangesText(teams)}.`
+  );
+}
+
+function fillTeams(prompt: string, teams: HumanTeamRange[] | null): string {
+  const buttons = teams
+    ? '- Jedes Ticket zeigt den Namen der Kundin oder des Kunden (Vorname Nachname). Für jedes Ticket klickt der ' +
+      'Teilnehmer entweder auf "KI-Agent" (das Ticket geht an dich) oder auf eines der Teams des menschlichen ' +
+      'Supports: ' + joinGerman(teams.map((t) => `"Team ${t.team}"`), 'oder') + '. Welches Team zuständig ist, ' +
+      'hängt vom Anfangsbuchstaben des Nachnamens ab: ' + teamRangesText(teams) + '. Diese Aufteilung steht ' +
+      'ebenfalls in der Regelübersicht und ändert sich während der Aufgabe nicht.'
+    : '- Für jedes Ticket klickt der Teilnehmer entweder auf "KI-Agent" (das Ticket geht an dich) oder auf ' +
+      '"Mensch" (das Ticket geht an den menschlichen Support).';
+  return prompt.replace(SORT_BUTTONS_PLACEHOLDER, buttons);
 }
 
 /** "A, B und C" */

@@ -12,6 +12,27 @@ export type TaskCondition = 'easy' | 'hard';
 export type RobotCondition = 'talkative' | 'quiet';
 
 export type Decision = 'ai' | 'human';
+/** Human support team (hard condition); chosen by the customer's surname */
+export type HumanTeam = 'A' | 'B' | 'C';
+
+/** Surname initials a team handles, inclusive (e.g. A–M) */
+export interface HumanTeamRange {
+  team: HumanTeam;
+  from: string;
+  to: string;
+}
+
+/** The customer who filed a ticket — shown as "Vorname Nachname" */
+export interface Customer {
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * Sort mistakes, for analysis: `side` = AI vs. human support wrong;
+ * `team` = human support was right but the team was not (hard only).
+ */
+export type SortError = 'none' | 'side' | 'team';
 export type TicketCategory =
   | 'software'
   | 'shipping'
@@ -93,6 +114,8 @@ export interface QueuedTicket extends Ticket {
   /** Pool ticket id; `id` gets a `#<round>` suffix once the pool repeats */
   sourceId: string;
   queuedAt: number;
+  /** Drawn at dispatch, so a repeated pool ticket gets a new customer */
+  customer: Customer;
 }
 
 /** Only the session's active categories are present (see task/categories.ts) */
@@ -115,7 +138,13 @@ export interface SortResult {
   ticketSourceId: string;
   ticketCategory: TicketCategory;
   decision: Decision;
+  /** Team the participant chose (human decisions in the hard condition) */
+  team: HumanTeam | null;
+  /** Correct team, if the ticket belonged to human support with teams active */
+  expectedTeam: HumanTeam | null;
+  customer: Customer;
   correct: boolean;
+  error: SortError;
   activeRules: ActiveRules;
   sortedAt: number;
   timeInQueueMs: number;
@@ -153,6 +182,8 @@ export interface SessionStartMessage {
     ticketJitter?: number;
     /** Categories per side (3 or 4); default 4 */
     categoryCount?: number;
+    /** Human support teams in the hard condition (2 or 3); default 2. Ignored in easy. */
+    humanTeamCount?: number;
     sessionTimerMs?: number;
     ruleSchedule?: RuleScheduleEntry[];
     /** Identifier of the rule plan the admin selected (built-in name, saved
@@ -178,6 +209,8 @@ export interface TicketSortMessage {
   type: 'ticket:sort';
   ticketId?: string;
   decision?: string;
+  /** Required for human decisions when the session has teams (hard) */
+  team?: string;
 }
 
 export interface SessionEndMessage {

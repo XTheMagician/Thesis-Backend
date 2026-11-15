@@ -1,17 +1,21 @@
 import type {
   ActiveRules,
   Decision,
+  HumanTeam,
+  HumanTeamRange,
   QueuedTicket,
   RobotCondition,
   RobotConfig,
   RuleScheduleEntry,
   SessionStats,
+  SortError,
   SortResult,
   TaskCondition,
   Ticket,
 } from '../types';
 import { shuffle } from './tickets';
 import { initialRules, type CategoryCount } from './categories';
+import { DEFAULT_HUMAN_TEAM_COUNT, randomCustomer, teamForSurname, teamRanges, type HumanTeamCount } from './teams';
 import {
   CHAT_SCHEDULE_SEC,
   CHAT_FALLBACK_GRACE_MS,
@@ -42,6 +46,8 @@ export interface SessionParams {
   ticketIntervalMs: number;
   ticketJitter?: number;
   categoryCount: CategoryCount;
+  /** Human support teams; only used in the hard condition */
+  humanTeamCount?: HumanTeamCount;
   sessionTimerMs?: number;
   ticketPool: Ticket[];
   ruleSchedule?: RuleScheduleEntry[];
@@ -72,6 +78,8 @@ export class Session {
   readonly ticketJitter: number;
   /** Categories per side; only these appear in activeRules and the ticket pool */
   readonly categoryCount: CategoryCount;
+  /** Surname ranges of the human support teams (hard); null = one human side (easy) */
+  readonly humanTeams: HumanTeamRange[] | null;
   readonly sessionTimerMs: number | null;
   /** Demo run: no briefing, no voice, nothing logged */
   readonly demo: boolean;
@@ -118,6 +126,8 @@ export class Session {
   private ticketIndex = 0;
   /** 1-based pass through the pool; the pool is reshuffled and repeated once exhausted */
   private ticketRound = 1;
+  /** Keeps two consecutive tickets from having the same customer */
+  private lastCustomerLastName: string | undefined;
 
   private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
   private ruleTimers: ReturnType<typeof setTimeout>[] = [];
@@ -141,6 +151,8 @@ export class Session {
     this.ticketIntervalMs = params.ticketIntervalMs;
     this.ticketJitter = params.ticketJitter ?? 0;
     this.categoryCount = params.categoryCount;
+    this.humanTeams =
+      params.taskCondition === 'hard' ? teamRanges(params.humanTeamCount ?? DEFAULT_HUMAN_TEAM_COUNT) : null;
     this.sessionTimerMs = params.sessionTimerMs ?? null;
     this.ticketPool = params.ticketPool;
     this.ruleSchedule = params.ruleSchedule ?? [];
@@ -281,12 +293,27 @@ export class Session {
     this.onEvent({ kind: 'chatMissed', chatId, reason, lostCustomers: this.chatsMissed });
   }
 
-  sort(ticketId: string, decision: Decision): { ticket: QueuedTicket; result: SortResult } | null {
+  /** Expected team for a ticket under the current rules; null if it isn't a team decision. */
+  expectedTeamFor(ticket: QueuedTicket): HumanTeam | null {
+    if (!this.humanTeams || this.activeRules[ticket.category] !== 'human') return null;
+    return teamForSurname(ticket.customer.lastName, this.humanTeams);
+  }
+
+  sort(
+    ticketId: string,
+    decision: Decision,
+    team: HumanTeam | null = null,
+  ): { ticket: QueuedTicket; result: SortResult } | null {
     const idx = this.queue.findIndex((t) => t.id === ticketId);
     if (idx === -1) return null;
 
     const [ticket] = this.queue.splice(idx, 1);
-    const correct = this.activeRules[ticket.category] === decision;
+    // A team only counts for human decisions in sessions that have teams
+    const chosenTeam = decision === 'human' && this.humanTeams ? team : null;
+    const expectedTeam = this.expectedTeamFor(ticket);
+    const error: SortError =
+      this.activeRules[ticket.category] !== decision ? 'side' : expectedTeam && chosenTeam !== expectedTeam ? 'team' : 'none';
+    const correct = error === 'none';
     const sortedAt = Date.now();
 
     const result: SortResult = {
@@ -294,7 +321,11 @@ export class Session {
       ticketSourceId: ticket.sourceId,
       ticketCategory: ticket.category,
       decision,
+      team: chosenTeam,
+      expectedTeam,
+      customer: ticket.customer,
       correct,
+      error,
       activeRules: { ...this.activeRules },
       sortedAt,
       timeInQueueMs: sortedAt - ticket.queuedAt,
@@ -341,7 +372,13 @@ export class Session {
         id: this.ticketRound === 1 ? source.id : `${source.id}#${this.ticketRound}`,
         sourceId: source.id,
         queuedAt: Date.now(),
+        // Easy sessions have no teams, but names are still balanced over the default split
+        customer: randomCustomer(
+          this.humanTeams ?? teamRanges(DEFAULT_HUMAN_TEAM_COUNT),
+          this.lastCustomerLastName,
+        ),
       };
+      this.lastCustomerLastName = ticket.customer.lastName;
       this.lastDispatchAt = Date.now();
       this.queue.push(ticket);
       this.onEvent({ kind: 'ticketQueued', ticket, queueLength: this.queue.length });

@@ -2,6 +2,7 @@ import type { Hub } from './hub';
 import type { Orchestrator } from './orchestrator';
 import type { DialogManager } from './robot/dialog-manager';
 import { cleanChatTimeoutMs } from './config/liveChat';
+import { isHumanTeam } from './task/teams';
 import type { Decision, InboundMessage, RobotCondition, RuleScheduleEntry, TaskCondition } from './types';
 
 export interface RouterContext {
@@ -50,6 +51,7 @@ export function handleMessage(ctx: RouterContext): void {
         ticketIntervalMs: msg.params?.ticketIntervalMs,
         ticketJitter: msg.params?.ticketJitter,
         categoryCount: msg.params?.categoryCount,
+        humanTeamCount: msg.params?.humanTeamCount,
         sessionTimerMs: msg.params?.sessionTimerMs,
         ruleSchedule: msg.params?.ruleSchedule as RuleScheduleEntry[] | undefined,
         rulePresetId: msg.params?.rulePresetId,
@@ -70,16 +72,17 @@ export function handleMessage(ctx: RouterContext): void {
     }
 
     case 'ticket:sort': {
-      const { ticketId, decision } = msg;
-      if (!ticketId || !isDecision(decision)) {
+      const { ticketId, decision, team } = msg;
+      if (!ticketId || !isDecision(decision) || (team != null && !isHumanTeam(team))) {
         hub.sendToClient(clientId, {
           type: 'error',
-          message: 'ticketId and decision ("ai"|"human") are required.',
+          message: 'ticketId and decision ("ai"|"human") are required; team, if given, must be "A", "B" or "C".',
         });
         return;
       }
 
-      const result = orchestrator.sortTicket(ticketId, decision);
+      // A missing team on a human decision in a team session is scored as a team error
+      const result = orchestrator.sortTicket(ticketId, decision, team ?? null);
       if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
       break;
     }

@@ -64,9 +64,9 @@ echo cancellation is confirmed reliable on device.
 
 Client → server: `session:start` (`params: { participantId, taskCondition:
 easy|hard, robotCondition: talkative|quiet, ticketIntervalMs?, ticketJitter?,
-categoryCount?, sessionTimerMs?, ruleSchedule?, robotOverrides?, demo? }`), `session:begin`,
+categoryCount?, humanTeamCount?, sessionTimerMs?, ruleSchedule?, robotOverrides?, demo? }`), `session:begin`,
 `session:pause`, `session:resume`, `session:end`, `session:status`,
-`ticket:sort` (`ticketId`, `decision: ai|human`).
+`ticket:sort` (`ticketId`, `decision: ai|human`, `team?: A|B|C`).
 
 ### Briefing
 
@@ -117,6 +117,33 @@ appointments; human support gets accounting, hr, returns, privacy. With 3,
 appointments and privacy are left out. Only active categories appear in
 `rules` and the ticket pool, and rule-schedule entries for inactive
 categories are ignored. The robot's task knowledge lists the same set.
+
+### Customers and human support teams
+
+Every queued ticket carries `customer: { firstName, lastName }`, drawn at
+dispatch (so a repeated pool ticket gets a new customer), shown as
+"Vorname Nachname". In the **hard** condition, human support is split into
+teams by the first letter of the surname (umlauts count as their base
+letter). `humanTeamCount` (`2` or `3`, default `2`) picks the split:
+
+| Teams | Ranges                          |
+|-------|---------------------------------|
+| 2     | A: A–M, B: N–Z                  |
+| 3     | A: A–H, B: I–Q, C: R–Z          |
+
+The ranges are sent as `humanTeams: [{ team, from, to }]` in
+`session:started` and `session:status` (`null` in easy sessions, which
+keep the single "Mensch" button). Surnames are drawn team-first, so every
+team gets about the same share of tickets. The split never changes during
+a session; rule changes only move categories between AI and human support.
+
+With teams, a human decision must include `team`. A sort is correct only
+if the side matches the active rules **and**, for human tickets, the team
+matches the surname. `ticket:sorted` echoes `team`; the log line adds
+`expectedTeam`, `customerFirstName`, `customerLastName` and
+`error: none|side|team` (side = AI vs. human wrong; team = right side,
+wrong team). The export splits `ticketsIncorrect` into `ticketsWrongSide`
+and `ticketsWrongTeam`.
 
 The ticket pool never runs out: once every ticket has been dispatched it is
 reshuffled and repeated. Repeats carry a `#<round>` suffix on `id` (e.g.
