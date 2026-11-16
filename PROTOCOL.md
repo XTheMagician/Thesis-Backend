@@ -63,7 +63,7 @@ echo cancellation is confirmed reliable on device.
 ## Task session messages (existing)
 
 Client → server: `session:start` (`params: { participantId, taskCondition:
-easy|hard, robotCondition: talkative|quiet, ticketIntervalMs?, ticketJitter?,
+easy|hard, robotCondition: talkative|quiet,
 categoryCount?, humanTeamCount?, sessionTimerMs?, ruleSchedule?, capacityEnabled?, robotOverrides?, demo? }`), `session:begin`,
 `session:pause`, `session:resume`, `session:end`, `session:status`,
 `ticket:sort` (`ticketId`, `decision: ai|human`, `team?: A|B|C`).
@@ -84,7 +84,17 @@ starts — when either
 
 Then the server broadcasts `session:taskStarted` (`sessionId`, `trigger`,
 `startedAt`, `timerDurationMs`); `startedAt` is the task start, which all task
-timing (ticket dispatch, rule schedule, session timer) counts from.
+timing (rule schedule, session timer) counts from.
+
+At most one ticket is in the queue at any time: the first is dispatched at
+task start, and each following one once the previous ticket is sorted
+(`ticket:sorted` is always broadcast before the next `ticket:queued`). In the
+hard condition the next ticket appears immediately; in easy it appears 4 s
+after the previous one appeared or immediately once it is sorted, whichever is
+later (`EASY_MIN_TICKET_SPACING_MS`, counted in active time, so pauses don't
+count). The queue can therefore be empty for up to 4 s in easy. The log's
+`taskConfig.minTicketSpacingMs` records the value used. `timeInQueueMs` is the
+participant's decision time for that ticket.
 
 `demo: true` skips the briefing and the voice session entirely — the task
 starts immediately (`trigger: "demo"`) and the robot stays silent. Demo runs
@@ -94,7 +104,11 @@ panel is always enabled in demo runs (any task condition), but no chats are
 scheduled: the admin panel opens one on demand with `chat:spawn` (no payload;
 rejected with an `error` outside demo runs, while the task isn't running, or
 while a chat is already open). The chat then runs the normal
-`chat:show` → accept/miss flow.
+`chat:show` → accept/miss flow. The AI-capacity bar works the same way:
+always enabled in demo runs, but it stays empty until the admin panel sends
+`capacity:fill` (no payload; rejected outside demo runs, while the task
+isn't running, or while the AI is already overloaded). That fills the bar
+at once and runs a normal 10 s overload, then resets it to 0.
 
 `robotOverrides` (`{ voice?, voiceStyle?, smallTalkFirstAfterSec?,
 smallTalkIntervalSec?, progressReportFirstAfterSec?,
@@ -124,10 +138,15 @@ Every queued ticket carries `customer: { firstName, lastName }`, drawn at
 dispatch (so a repeated pool ticket gets a new customer), shown as
 "Vorname Nachname". In the **hard** condition, human support is split into
 teams by the first letter of the surname (umlauts count as their base
-letter). `humanTeamCount` (`2` or `3`, default `2`) picks the split:
+letter). `humanTeamCount` (`1`, `2` or `3`, default `2`) picks the split;
+`1` turns the split off, so hard then has a single "Mensch" button like easy
+(`humanTeams: null`, no team decision; the robot's prompt and briefing omit
+the teams). `taskConfig.humanTeamCount` records the resolved value (always `1`
+in easy):
 
 | Teams | Ranges                          |
 |-------|---------------------------------|
+| 1     | — (no split)                    |
 | 2     | A: A–M, B: N–Z                  |
 | 3     | A: A–H, B: I–Q, C: R–Z          |
 
@@ -145,12 +164,26 @@ matches the surname. `ticket:sorted` echoes `team`; the log line adds
 wrong team). The export splits `ticketsIncorrect` into `ticketsWrongSide`
 and `ticketsWrongTeam`.
 
+Every `ticket:sorted` log line spells out the correct answer at sort time:
+`ruleSide` (what the active rules say), `expectedSide` (the rule side, except
+AI → human while the AI is overloaded) and `expectedTeam` (null in easy or
+when the expected side is AI), next to `ticketSourceId` and `activeRules`.
+`ticket:queued` logs the same `ruleSide` / `expectedSide` / `expectedTeam` /
+`capacityFull` as of the moment the ticket appeared; if a rule change or an
+overload falls while the ticket is on screen, the sort-time values are the
+ones scored.
+
+The export's `ticketsPerMin` is tickets sorted per minute of active task time
+(`activeTaskSec`: `task:started` → `session:ended`, minus pauses). It replaces
+the old `throughput` (sorted ÷ queued), which is always ≈ 1 now that tickets
+come one at a time.
+
 ### AI-capacity bar (hard)
 
 In the hard condition (`capacityEnabled`, default `true`; always off in
 easy) a bar shows the AI's capacity. It fills in small, irregular steps on
 a fixed schedule (`src/config/capacity.ts`, seeded, identical for every
-participant, also in demo runs) and reaches 100 % at 66, 119, 170, 215 and
+participant; demo runs have no schedule, see above) and reaches 100 % at 66, 119, 170, 215 and
 266 s after the task start (each fill takes 30–70 s). While it is full, the
 AI is overloaded for 10 s: every
 ticket whose rule says AI must go to human support instead (with teams, to

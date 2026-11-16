@@ -1,7 +1,7 @@
 import { Session, type SessionEvent } from './task/session';
 import { getTicketPool } from './task/tickets';
 import { activeCategories, DEFAULT_CATEGORY_COUNT, isCategoryCount } from './task/categories';
-import { DEFAULT_HUMAN_TEAM_COUNT, isHumanTeamCount, teamRanges } from './task/teams';
+import { DEFAULT_HUMAN_TEAM_COUNT, humanTeamsFor, isHumanTeamCount } from './task/teams';
 import { BRIEFING_START_TOOL, resolveRobotConfig } from './config/conditions';
 import { OVERLOAD_AT_SEC, OVERLOAD_MS } from './config/capacity';
 import { logEvent, logRobotEvent, closeSession, type LogMeta } from './logger';
@@ -40,8 +40,6 @@ export interface StartParams {
   participantId: string;
   taskCondition: TaskCondition;
   robotCondition: RobotCondition;
-  ticketIntervalMs?: number;
-  ticketJitter?: number;
   categoryCount?: number;
   humanTeamCount?: number;
   sessionTimerMs?: number;
@@ -236,22 +234,17 @@ export class Orchestrator {
     const categoryCount = isCategoryCount(params.categoryCount) ? params.categoryCount : DEFAULT_CATEGORY_COUNT;
     const humanTeamCount = isHumanTeamCount(params.humanTeamCount) ? params.humanTeamCount : DEFAULT_HUMAN_TEAM_COUNT;
     // Teams exist in the hard condition only; the robot's prompt and briefing explain them there
-    const humanTeams = params.taskCondition === 'hard' ? teamRanges(humanTeamCount) : null;
-    // Same resolution as in Session: on by default in hard, never in easy
-    const capacityEnabled = params.taskCondition === 'hard' && params.capacityEnabled !== false;
+    const humanTeams = humanTeamsFor(params.taskCondition, humanTeamCount);
+    // Same resolution as in Session: on by default in hard, never in easy, always in demo runs
+    const capacityEnabled = params.demo === true || (params.taskCondition === 'hard' && params.capacityEnabled !== false);
     const robotConfig = resolveRobotConfig(
-      params.robotCondition, params.robotOverrides, categoryCount, humanTeams, capacityEnabled,
+      params.robotCondition, params.robotOverrides, categoryCount, humanTeams, capacityEnabled, params.taskCondition,
     );
-    const intervalMs =
-      params.ticketIntervalMs ?? parseInt(process.env.TICKET_INTERVAL_MS ?? '8000');
-
     const session = new Session({
       participantId: params.participantId,
       taskCondition: params.taskCondition,
       robotCondition: params.robotCondition,
       robotConfig,
-      ticketIntervalMs: intervalMs,
-      ticketJitter: params.ticketJitter,
       categoryCount,
       humanTeamCount,
       sessionTimerMs: params.sessionTimerMs,
@@ -270,11 +263,15 @@ export class Orchestrator {
     // overrides and env defaults) — the export reads these, not the defaults.
     const taskConfig = {
       taskCondition: session.taskCondition,
-      ticketIntervalMs: session.ticketIntervalMs,
-      ticketJitter: session.ticketJitter,
+      // One ticket on screen at a time; the next appears once the previous is
+      // sorted, but (easy) no sooner than minTicketSpacingMs after it appeared
+      ticketDispatch: 'onSort',
+      minTicketSpacingMs: session.minTicketSpacingMs,
       durationMs: session.sessionTimerMs,
       rulePresetId: params.rulePresetId ?? (session.taskCondition === 'easy' ? 'none' : 'custom'),
       categoryCount: session.categoryCount,
+      // 1 = no team split; easy never has teams regardless of this value
+      humanTeamCount: session.humanTeams?.length ?? 1,
       humanTeams: session.humanTeams,
       chatEnabled: session.chatEnabled,
       chatTimeoutMs: session.chatTimeoutMs,
@@ -304,8 +301,6 @@ export class Orchestrator {
       robotConfig,
       status: session.status,
       demo: session.demo,
-      ticketIntervalMs: session.ticketIntervalMs,
-      ticketJitter: session.ticketJitter,
       categoryCount: session.categoryCount,
       humanTeams: session.humanTeams,
       timerDurationMs: session.sessionTimerMs,
@@ -494,9 +489,12 @@ export class Orchestrator {
 
     this.log(session, 'ticket:sorted', {
       ticketId: result.ticketId,
+      ticketSourceId: result.ticketSourceId,
       ticketCategory: result.ticketCategory,
       decision: result.decision,
       team: result.team,
+      ruleSide: result.ruleSide,
+      expectedSide: result.expectedSide,
       expectedTeam: result.expectedTeam,
       customerFirstName: result.customer.firstName,
       customerLastName: result.customer.lastName,
@@ -521,6 +519,10 @@ export class Orchestrator {
       stats: { ...session.stats, accuracy },
       queueLength: session.queue.length,
     });
+
+    // The next ticket appears right away; dispatched after the sort is logged
+    // and broadcast so ticket:sorted always precedes the following ticket:queued
+    session.fillQueue();
 
     return { ok: true, value: result };
   }
@@ -568,6 +570,17 @@ export class Orchestrator {
     return { ok: true, value: undefined };
   }
 
+  /** Admin button: overload the AI right now. Demo runs only — study runs keep the fixed schedule. */
+  fillCapacity(): Result {
+    const session = this.activeSession;
+    if (!session) return { ok: false, error: 'No active session.' };
+    if (!session.demo) return { ok: false, error: 'The capacity bar can only be filled manually in demo runs.' };
+    const result = session.fillCapacity();
+    if (!result.ok) return result;
+    console.log('[Session] AI capacity filled manually');
+    return { ok: true, value: undefined };
+  }
+
   statusPayload(): object {
     const session = this.activeSession;
     // Connection state for the admin panel, independent of any session
@@ -587,8 +600,6 @@ export class Orchestrator {
           demo: session.demo,
           stats: session.stats,
           queue: session.queue,
-          ticketIntervalMs: session.ticketIntervalMs,
-          ticketJitter: session.ticketJitter,
           categoryCount: session.categoryCount,
           humanTeams: session.humanTeams,
           timerDurationMs: session.sessionTimerMs,
@@ -618,11 +629,19 @@ export class Orchestrator {
 
     switch (event.kind) {
       case 'ticketQueued':
+        // The correct answer as of the moment the ticket appears. The one that
+        // counts is evaluated at sort time (ticket:sorted), since a rule change
+        // or overload can happen while the ticket is on screen.
         this.log(session, 'ticket:queued', {
           ticketId: event.ticket.id,
+          ticketSourceId: event.ticket.sourceId,
           ticketCategory: event.ticket.category,
           customerFirstName: event.ticket.customer.firstName,
           customerLastName: event.ticket.customer.lastName,
+          capacityFull: session.capacityFull,
+          ruleSide: session.activeRules[event.ticket.category] ?? 'human',
+          expectedSide: session.expectedSideFor(event.ticket),
+          expectedTeam: session.expectedTeamFor(event.ticket),
         });
         this.hub.broadcast({ type: 'ticket:queued', ticket: event.ticket, queueLength: event.queueLength });
         break;

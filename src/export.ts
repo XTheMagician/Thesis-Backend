@@ -60,7 +60,9 @@ export interface SessionRow {
   /** Sent to the AI while it was overloaded (capacity bar full, hard) */
   ticketsWrongCapacity: number;
   score: number;
-  throughput: number | null;
+  /** Tickets sorted per minute of active task time (task:started → session:ended, pauses excluded) */
+  ticketsPerMin: number | null;
+  activeTaskSec: number | null;
   accuracy: number | null;
   medianHandlingMs: number | null;
   robotSmalltalkCount: number;
@@ -87,8 +89,8 @@ export interface ParticipantRow {
   rulePreset_quiet: string;
   talk_score: number;
   quiet_score: number;
-  talk_throughput: number | null;
-  quiet_throughput: number | null;
+  talk_ticketsPerMin: number | null;
+  quiet_ticketsPerMin: number | null;
   talk_accuracy: number | null;
   quiet_accuracy: number | null;
   talk_medianHandlingMs: number | null;
@@ -104,7 +106,7 @@ export interface ParticipantRow {
   talk_meanReactionTimeMs: number | null;
   quiet_meanReactionTimeMs: number | null;
   adv_score: number;
-  adv_throughput: number | null;
+  adv_ticketsPerMin: number | null;
   adv_accuracy: number | null;
   adv_medianHandlingMs: number | null;
   adv_lostCustomers: number;
@@ -192,6 +194,8 @@ function computeSessionRow(raw: RawSession): SessionRow {
   let chatsAccepted = 0;
   let chatsMissed = 0;
   let falseClicks = 0;
+  let pausedMs = 0;
+  let pausedSinceMs: number | null = null;
   const reactionTimesMs: number[] = [];
 
   const arrivalMsById = new Map<string, number>();
@@ -242,9 +246,19 @@ function computeSessionRow(raw: RawSession): SessionRow {
         case 'capacity:full':
           capacityOverloads++;
           break;
+        case 'session:paused':
+          pausedSinceMs = ts;
+          break;
+        case 'session:resumed':
+          if (pausedSinceMs != null) pausedMs += ts - pausedSinceMs;
+          pausedSinceMs = null;
+          break;
       }
     }
+    // Ended (or crashed) while paused
+    if (pausedSinceMs != null) pausedMs += windowEndMs - pausedSinceMs;
   }
+  const activeTaskMs = windowStartMs != null ? Math.max(0, windowEndMs - windowStartMs - pausedMs) : null;
 
   // Handling time per ticket: sort time minus the later of (its arrival, the
   // previous ticket's sort time) — so queue wait while the participant works
@@ -280,7 +294,10 @@ function computeSessionRow(raw: RawSession): SessionRow {
     ticketsWrongTeam,
     ticketsWrongCapacity,
     score: ticketsCorrect - ticketsIncorrect,
-    throughput: ticketsQueued > 0 ? ticketsSorted / ticketsQueued : null,
+    // Tickets come one at a time (the next after each sort), so sorted ÷ queued
+    // is always ≈ 1; the rate per active minute is the throughput measure
+    ticketsPerMin: activeTaskMs ? ticketsSorted / (activeTaskMs / 60_000) : null,
+    activeTaskSec: activeTaskMs != null ? activeTaskMs / 1000 : null,
     accuracy: ticketsSorted > 0 ? ticketsCorrect / ticketsSorted : null,
     medianHandlingMs: median(handling),
     robotSmalltalkCount,
@@ -388,8 +405,8 @@ function buildParticipantRow(pid: string, t: SessionRow, q: SessionRow): Partici
     rulePreset_quiet: q.rulePresetId,
     talk_score: t.score,
     quiet_score: q.score,
-    talk_throughput: t.throughput,
-    quiet_throughput: q.throughput,
+    talk_ticketsPerMin: t.ticketsPerMin,
+    quiet_ticketsPerMin: q.ticketsPerMin,
     talk_accuracy: t.accuracy,
     quiet_accuracy: q.accuracy,
     talk_medianHandlingMs: t.medianHandlingMs,
@@ -405,7 +422,7 @@ function buildParticipantRow(pid: string, t: SessionRow, q: SessionRow): Partici
     talk_meanReactionTimeMs: t.meanReactionTimeMs,
     quiet_meanReactionTimeMs: q.meanReactionTimeMs,
     adv_score: t.score - q.score,
-    adv_throughput: diff(t.throughput, q.throughput),
+    adv_ticketsPerMin: diff(t.ticketsPerMin, q.ticketsPerMin),
     adv_accuracy: diff(t.accuracy, q.accuracy),
     // Reversed so a positive value everywhere means "the talkative agent helped"
     adv_medianHandlingMs: diff(q.medianHandlingMs, t.medianHandlingMs),
@@ -436,7 +453,8 @@ const SESSION_COLUMNS: { header: string; key: keyof SessionRow }[] = [
   { header: 'ticketsWrongTeam', key: 'ticketsWrongTeam' },
   { header: 'ticketsWrongCapacity', key: 'ticketsWrongCapacity' },
   { header: 'score', key: 'score' },
-  { header: 'throughput', key: 'throughput' },
+  { header: 'ticketsPerMin', key: 'ticketsPerMin' },
+  { header: 'activeTaskSec', key: 'activeTaskSec' },
   { header: 'accuracy', key: 'accuracy' },
   { header: 'medianHandlingMs', key: 'medianHandlingMs' },
   { header: 'robotSmalltalkCount', key: 'robotSmalltalkCount' },
@@ -458,8 +476,8 @@ const PARTICIPANT_COLUMNS: { header: string; key: keyof ParticipantRow }[] = [
   { header: 'rulePreset_quiet', key: 'rulePreset_quiet' },
   { header: 'talk_score', key: 'talk_score' },
   { header: 'quiet_score', key: 'quiet_score' },
-  { header: 'talk_throughput', key: 'talk_throughput' },
-  { header: 'quiet_throughput', key: 'quiet_throughput' },
+  { header: 'talk_ticketsPerMin', key: 'talk_ticketsPerMin' },
+  { header: 'quiet_ticketsPerMin', key: 'quiet_ticketsPerMin' },
   { header: 'talk_accuracy', key: 'talk_accuracy' },
   { header: 'quiet_accuracy', key: 'quiet_accuracy' },
   { header: 'talk_medianHandlingMs', key: 'talk_medianHandlingMs' },
@@ -475,7 +493,7 @@ const PARTICIPANT_COLUMNS: { header: string; key: keyof ParticipantRow }[] = [
   { header: 'talk_meanReactionTimeMs', key: 'talk_meanReactionTimeMs' },
   { header: 'quiet_meanReactionTimeMs', key: 'quiet_meanReactionTimeMs' },
   { header: 'adv_score', key: 'adv_score' },
-  { header: 'adv_throughput', key: 'adv_throughput' },
+  { header: 'adv_ticketsPerMin', key: 'adv_ticketsPerMin' },
   { header: 'adv_accuracy', key: 'adv_accuracy' },
   { header: 'adv_medianHandlingMs', key: 'adv_medianHandlingMs' },
   { header: 'adv_lostCustomers', key: 'adv_lostCustomers' },

@@ -15,13 +15,20 @@ import type {
 } from '../types';
 import { shuffleNoRepeat } from './tickets';
 import { initialRules, type CategoryCount } from './categories';
-import { DEFAULT_HUMAN_TEAM_COUNT, randomCustomer, teamForSurname, teamRanges, type HumanTeamCount } from './teams';
-import { CAPACITY_SCHEDULE, type CapacityEvent } from '../config/capacity';
+import { DEFAULT_HUMAN_TEAM_COUNT, humanTeamsFor, randomCustomer, teamForSurname, teamRanges, type HumanTeamCount } from './teams';
+import { CAPACITY_SCHEDULE, OVERLOAD_MS, type CapacityEvent } from '../config/capacity';
 import {
   CHAT_SCHEDULE_SEC,
   CHAT_FALLBACK_GRACE_MS,
   DEFAULT_CHAT_TIMEOUT_MS,
 } from '../config/liveChat';
+
+/**
+ * Easy condition: a ticket appears no sooner than this long after the
+ * previous one appeared (or immediately once it is sorted, whichever is
+ * later). Hard has no minimum — the next ticket follows the sort directly.
+ */
+export const EASY_MIN_TICKET_SPACING_MS = 4000;
 
 /** Why a chat ended up a miss. */
 export type ChatMissReason = 'clientTimeout' | 'noClientResponse';
@@ -45,8 +52,6 @@ export interface SessionParams {
   taskCondition: TaskCondition;
   robotCondition: RobotCondition;
   robotConfig: RobotConfig;
-  ticketIntervalMs: number;
-  ticketJitter?: number;
   categoryCount: CategoryCount;
   /** Human support teams; only used in the hard condition */
   humanTeamCount?: HumanTeamCount;
@@ -58,7 +63,7 @@ export interface SessionParams {
   /** Live-chat side task (resolved: default on in hard, forced off in easy; always on in demo runs). */
   chatEnabled?: boolean;
   chatTimeoutMs?: number;
-  /** AI-capacity bar (resolved like chatEnabled: default on in hard, forced off in easy). */
+  /** AI-capacity bar (resolved like chatEnabled: default on in hard, forced off in easy; always on in demo runs). */
   capacityEnabled?: boolean;
   demo?: boolean;
   onEvent: (event: SessionEvent) => void;
@@ -78,8 +83,6 @@ export class Session {
   readonly taskCondition: TaskCondition;
   readonly robotCondition: RobotCondition;
   readonly robotConfig: RobotConfig;
-  readonly ticketIntervalMs: number;
-  readonly ticketJitter: number;
   /** Categories per side; only these appear in activeRules and the ticket pool */
   readonly categoryCount: CategoryCount;
   /** Surname ranges of the human support teams (hard); null = one human side (easy) */
@@ -87,6 +90,8 @@ export class Session {
   readonly sessionTimerMs: number | null;
   /** Demo run: no briefing, no voice, nothing logged */
   readonly demo: boolean;
+  /** Minimum active time between two tickets appearing (easy: 4 s, hard: 0) */
+  readonly minTicketSpacingMs: number;
 
   /** 'briefing' until begin(): the robot explains the task, nothing is dispatched yet */
   status: 'briefing' | 'running' | 'paused' | 'ended';
@@ -101,6 +106,7 @@ export class Session {
   totalPausedMs: number = 0;
 
   activeRules: ActiveRules;
+  /** Holds exactly one ticket while the task runs: the next one is dispatched as soon as the current one is sorted. */
   queue: QueuedTicket[] = [];
   results: SortResult[] = [];
   stats: SessionStats = { total: 0, correct: 0, wrong: 0 };
@@ -129,6 +135,10 @@ export class Session {
   /** Number of overloads (bar reached 100 %) so far */
   overloadCount = 0;
   private capacityTimers: ReturnType<typeof setTimeout>[] = [];
+  /** Reset of a manually triggered overload (demo runs); frozen across a pause */
+  private manualResetTimer: ReturnType<typeof setTimeout> | null = null;
+  private manualResetDeadline: number | null = null;
+  private manualResetRemainingMs: number | null = null;
 
   private readonly onEvent: (event: SessionEvent) => void;
   private ticketPool: Ticket[];
@@ -143,8 +153,11 @@ export class Session {
   /** Keeps two consecutive tickets from having the same customer */
   private lastCustomerLastName: string | undefined;
 
-  private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
   private ruleTimers: ReturnType<typeof setTimeout>[] = [];
+  /** Pending dispatch while the minimum spacing hasn't elapsed yet (easy) */
+  private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Active time (elapsedActiveMs) at which the last ticket appeared */
+  private lastQueuedActiveMs: number | null = null;
   private chatTimers: ReturnType<typeof setTimeout>[] = [];
   private chatFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   /** Fallback deadline (epoch ms) for the open chat; restored across pause. */
@@ -152,35 +165,32 @@ export class Session {
   private chatFallbackRemainingMs: number | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Remaining times captured on pause so timers can be recreated on resume
-  private dispatchRemainingMs: number | null = null;
+  // Remaining time captured on pause so the session timer can be recreated on resume
   private sessionTimerRemainingMs: number | null = null;
-  private lastDispatchAt: number;
 
   constructor(params: SessionParams) {
     this.participantId = params.participantId;
     this.taskCondition = params.taskCondition;
     this.robotCondition = params.robotCondition;
     this.robotConfig = params.robotConfig;
-    this.ticketIntervalMs = params.ticketIntervalMs;
-    this.ticketJitter = params.ticketJitter ?? 0;
     this.categoryCount = params.categoryCount;
-    this.humanTeams =
-      params.taskCondition === 'hard' ? teamRanges(params.humanTeamCount ?? DEFAULT_HUMAN_TEAM_COUNT) : null;
+    this.humanTeams = humanTeamsFor(params.taskCondition, params.humanTeamCount ?? DEFAULT_HUMAN_TEAM_COUNT);
     this.sessionTimerMs = params.sessionTimerMs ?? null;
     // Consecutive tickets never share a category (also across pool rounds)
     this.ticketPool = shuffleNoRepeat(params.ticketPool);
     this.ruleSchedule = params.ruleSchedule ?? [];
     this.demo = params.demo ?? false;
+    this.minTicketSpacingMs = params.taskCondition === 'easy' ? EASY_MIN_TICKET_SPACING_MS : 0;
     // Live chat only exists in the hard condition; easy forces it off. Demo
     // runs always show the chat panel (so the UI matches the study), but have
     // no schedule: chats only appear when the admin spawns one (spawnChat).
     this.chatEnabled = this.demo || (params.taskCondition === 'hard' && params.chatEnabled !== false);
     this.chatTimeoutMs = params.chatTimeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
     this.chatSchedule = this.chatEnabled && !this.demo ? CHAT_SCHEDULE_SEC : [];
-    // Unlike the live chat, the capacity bar runs on its schedule in demo runs too
-    this.capacityEnabled = params.taskCondition === 'hard' && params.capacityEnabled !== false;
-    this.capacitySchedule = this.capacityEnabled ? CAPACITY_SCHEDULE : [];
+    // Like the live chat: always shown in demo runs, but without a schedule —
+    // the bar only fills when the admin triggers an overload (fillCapacity)
+    this.capacityEnabled = this.demo || (params.taskCondition === 'hard' && params.capacityEnabled !== false);
+    this.capacitySchedule = this.capacityEnabled && !this.demo ? CAPACITY_SCHEDULE : [];
     this.onEvent = params.onEvent;
 
     const tag = this.demo ? '-demo' : '';
@@ -189,17 +199,15 @@ export class Session {
     this.status = 'briefing';
     this.createdAt = Date.now();
     this.startedAt = this.createdAt;
-    this.lastDispatchAt = this.startedAt;
     this.activeRules = initialRules(this.categoryCount);
   }
 
-  /** End the briefing: start dispatching tickets and arm the rule/session timers. */
+  /** End the briefing: show the first ticket and arm the rule/session timers. */
   begin(): void {
     if (this.status !== 'briefing') return;
     this.status = 'running';
     this.startedAt = Date.now();
-    this.lastDispatchAt = this.startedAt;
-    this.scheduleNextTicket();
+    this.fillQueue();
     this.scheduleRuleTimers();
     this.scheduleChatTimers();
     this.scheduleCapacityTimers();
@@ -218,11 +226,8 @@ export class Session {
       this.sessionTimer = null;
     }
 
-    if (this.dispatchTimer) {
-      this.dispatchRemainingMs = Math.max(0, this.ticketIntervalMs - (Date.now() - this.lastDispatchAt));
-      clearTimeout(this.dispatchTimer);
-      this.dispatchTimer = null;
-    }
+    // A pending dispatch is recomputed from elapsed active time on resume
+    this.clearDispatchTimer();
 
     // Rule timers are recomputed from elapsed active time on resume
     this.ruleTimers.forEach(clearTimeout);
@@ -234,6 +239,11 @@ export class Session {
     this.chatTimers = [];
     this.capacityTimers.forEach(clearTimeout);
     this.capacityTimers = [];
+    if (this.manualResetTimer && this.manualResetDeadline != null) {
+      this.manualResetRemainingMs = Math.max(0, this.manualResetDeadline - Date.now());
+      clearTimeout(this.manualResetTimer);
+      this.manualResetTimer = null;
+    }
     if (this.chatFallbackTimer && this.chatFallbackDeadline != null) {
       this.chatFallbackRemainingMs = Math.max(0, this.chatFallbackDeadline - Date.now());
       clearTimeout(this.chatFallbackTimer);
@@ -248,13 +258,15 @@ export class Session {
     this.pausedAt = null;
     this.status = 'running';
 
-    this.scheduleNextTicket(this.dispatchRemainingMs ?? undefined);
-    this.dispatchRemainingMs = null;
-
+    this.fillQueue();
     this.scheduleRuleTimers();
 
     this.scheduleChatTimers();
     this.scheduleCapacityTimers();
+    if (this.manualResetRemainingMs != null) {
+      this.armManualReset(this.manualResetRemainingMs);
+      this.manualResetRemainingMs = null;
+    }
     if (this.activeChat && this.chatFallbackRemainingMs != null) {
       this.armChatFallback(this.chatFallbackRemainingMs);
       this.chatFallbackRemainingMs = null;
@@ -274,11 +286,12 @@ export class Session {
     this.endedAt = Date.now();
     this.duration = neverStarted ? 0 : this.endedAt - this.startedAt - this.totalPausedMs;
 
-    if (this.dispatchTimer) clearTimeout(this.dispatchTimer);
     if (this.sessionTimer) clearTimeout(this.sessionTimer);
+    this.clearDispatchTimer();
     this.ruleTimers.forEach(clearTimeout);
     this.chatTimers.forEach(clearTimeout);
     this.capacityTimers.forEach(clearTimeout);
+    if (this.manualResetTimer) clearTimeout(this.manualResetTimer);
     if (this.chatFallbackTimer) clearTimeout(this.chatFallbackTimer);
   }
 
@@ -339,9 +352,10 @@ export class Session {
     const [ticket] = this.queue.splice(idx, 1);
     // A team only counts for human decisions in sessions that have teams
     const chosenTeam = decision === 'human' && this.humanTeams ? team : null;
+    const ruleSide = this.activeRules[ticket.category] ?? 'human';
     const expectedSide = this.expectedSideFor(ticket);
     const expectedTeam = this.expectedTeamFor(ticket);
-    const overloadRedirect = this.capacityFull && this.activeRules[ticket.category] === 'ai';
+    const overloadRedirect = this.capacityFull && ruleSide === 'ai';
     const error: SortError =
       decision !== expectedSide
         ? overloadRedirect ? 'capacity' : 'side'
@@ -355,6 +369,8 @@ export class Session {
       ticketCategory: ticket.category,
       decision,
       team: chosenTeam,
+      ruleSide,
+      expectedSide,
       expectedTeam,
       customer: ticket.customer,
       capacityFull: this.capacityFull,
@@ -385,42 +401,52 @@ export class Session {
   //  Internal timers                                                     //
   // ------------------------------------------------------------------ //
 
-  /** Randomized interval: base ± (base * jitter). Minimum 500ms. */
-  private randomizedInterval(): number {
-    if (this.ticketJitter <= 0) return this.ticketIntervalMs;
-    const offset = (Math.random() * 2 - 1) * this.ticketJitter * this.ticketIntervalMs;
-    return Math.max(500, Math.round(this.ticketIntervalMs + offset));
+  /**
+   * Dispatch the next ticket if none is waiting. Called on begin, on resume
+   * and by the orchestrator right after a sort is logged, so at most one
+   * ticket is on screen. The next appears as soon as the previous one is
+   * done — in easy, though, no sooner than minTicketSpacingMs (active time)
+   * after the previous one appeared.
+   */
+  fillQueue(): void {
+    if (this.status !== 'running' || this.queue.length > 0 || this.dispatchTimer) return;
+
+    const waitMs =
+      this.lastQueuedActiveMs == null
+        ? 0
+        : this.lastQueuedActiveMs + this.minTicketSpacingMs - this.elapsedActiveMs;
+    if (waitMs > 0) {
+      this.dispatchTimer = setTimeout(() => {
+        this.dispatchTimer = null;
+        this.fillQueue();
+      }, waitMs);
+      return;
+    }
+
+    if (this.ticketIndex >= this.ticketPool.length) this.startNextRound();
+
+    const source = this.ticketPool[this.ticketIndex++];
+    const ticket: QueuedTicket = {
+      ...source,
+      // Repeated tickets need a unique id so sort() can't hit an earlier copy
+      id: this.ticketRound === 1 ? source.id : `${source.id}#${this.ticketRound}`,
+      sourceId: source.id,
+      queuedAt: Date.now(),
+      // Easy sessions have no teams, but names are still balanced over the default split
+      customer: randomCustomer(
+        this.humanTeams ?? teamRanges(2),
+        this.lastCustomerLastName,
+      ),
+    };
+    this.lastCustomerLastName = ticket.customer.lastName;
+    this.lastQueuedActiveMs = this.elapsedActiveMs;
+    this.queue.push(ticket);
+    this.onEvent({ kind: 'ticketQueued', ticket, queueLength: this.queue.length });
   }
 
-  private scheduleNextTicket(delayMs?: number): void {
-    const delay = delayMs ?? this.randomizedInterval();
-
-    this.dispatchTimer = setTimeout(() => {
-      if (this.status !== 'running') return;
-
-      if (this.ticketIndex >= this.ticketPool.length) this.startNextRound();
-
-      const source = this.ticketPool[this.ticketIndex++];
-      const ticket: QueuedTicket = {
-        ...source,
-        // Repeated tickets need a unique id so sort() can't hit an earlier copy still in the queue
-        id: this.ticketRound === 1 ? source.id : `${source.id}#${this.ticketRound}`,
-        sourceId: source.id,
-        queuedAt: Date.now(),
-        // Easy sessions have no teams, but names are still balanced over the default split
-        customer: randomCustomer(
-          this.humanTeams ?? teamRanges(DEFAULT_HUMAN_TEAM_COUNT),
-          this.lastCustomerLastName,
-        ),
-      };
-      this.lastCustomerLastName = ticket.customer.lastName;
-      this.lastDispatchAt = Date.now();
-      this.queue.push(ticket);
-      this.onEvent({ kind: 'ticketQueued', ticket, queueLength: this.queue.length });
-
-      // Chain the next dispatch
-      this.scheduleNextTicket();
-    }, delay);
+  private clearDispatchTimer(): void {
+    if (this.dispatchTimer) clearTimeout(this.dispatchTimer);
+    this.dispatchTimer = null;
   }
 
   /** Reshuffle the exhausted pool; the next round doesn't start with the last ticket's category. */
@@ -492,14 +518,42 @@ export class Session {
 
       const timer = setTimeout(() => {
         if (this.status !== 'running') return;
-        const wasFull = this.capacityFull;
-        this.capacityLevel = event.level;
-        this.capacityFull = event.full;
-        if (event.full && !wasFull) this.overloadCount++;
-        this.onEvent({ kind: 'capacityChanged', level: event.level, full: event.full, wasFull });
+        this.setCapacity(event.level, event.full);
       }, remainingMs);
       this.capacityTimers.push(timer);
     }
+  }
+
+  /**
+   * Fill the bar right now and overload the AI for OVERLOAD_MS (admin
+   * button in demo runs), then reset it to 0 — the same as a scheduled
+   * overload, just on demand.
+   */
+  fillCapacity(): { ok: true } | { ok: false; error: string } {
+    if (this.status !== 'running') return { ok: false, error: 'The task is not running.' };
+    if (!this.capacityEnabled) return { ok: false, error: 'The AI-capacity bar is disabled in this session.' };
+    if (this.capacityFull) return { ok: false, error: 'The AI is already overloaded.' };
+    this.setCapacity(100, true);
+    this.armManualReset(OVERLOAD_MS);
+    return { ok: true };
+  }
+
+  private armManualReset(ms: number): void {
+    this.manualResetDeadline = Date.now() + ms;
+    this.manualResetTimer = setTimeout(() => {
+      this.manualResetTimer = null;
+      this.manualResetDeadline = null;
+      if (this.status !== 'running') return;
+      this.setCapacity(0, false);
+    }, ms);
+  }
+
+  private setCapacity(level: number, full: boolean): void {
+    const wasFull = this.capacityFull;
+    this.capacityLevel = level;
+    this.capacityFull = full;
+    if (full && !wasFull) this.overloadCount++;
+    this.onEvent({ kind: 'capacityChanged', level, full, wasFull });
   }
 
   /**

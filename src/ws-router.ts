@@ -48,8 +48,6 @@ export function handleMessage(ctx: RouterContext): void {
         participantId,
         taskCondition,
         robotCondition,
-        ticketIntervalMs: msg.params?.ticketIntervalMs,
-        ticketJitter: msg.params?.ticketJitter,
         categoryCount: msg.params?.categoryCount,
         humanTeamCount: msg.params?.humanTeamCount,
         sessionTimerMs: msg.params?.sessionTimerMs,
@@ -112,6 +110,12 @@ export function handleMessage(ctx: RouterContext): void {
 
     case 'chat:spawn': {
       const result = orchestrator.spawnChat();
+      if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
+      break;
+    }
+
+    case 'capacity:fill': {
+      const result = orchestrator.fillCapacity();
       if (!result.ok) hub.sendToClient(clientId, { type: 'error', message: result.error });
       break;
     }

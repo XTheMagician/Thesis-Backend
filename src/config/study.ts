@@ -8,7 +8,10 @@ import { existsSync, readFileSync } from 'fs';
 // ------------------------------------------------------------------ //
 
 /** Schema version of the JSONL event log; bumped on breaking log changes. */
-export const LOG_SCHEMA_VERSION = 1;
+// 2: one ticket at a time (taskConfig.ticketDispatch/minTicketSpacingMs instead
+//    of ticketIntervalMs/ticketJitter); ticket:queued/sorted carry ruleSide,
+//    expectedSide and ticketSourceId; ticket:queued also expectedTeam/capacityFull
+export const LOG_SCHEMA_VERSION = 2;
 
 /**
  * Whether the participant's transcribed speech TEXT is written to the log.

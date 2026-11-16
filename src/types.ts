@@ -71,7 +71,7 @@ export interface RobotConfig {
   /** Delay before the first small-talk impulse; the interval applies after that */
   smallTalkFirstAfterSec: number;
   smallTalkIntervalSec: number;
-  smallTalkJitter: number; // 0..1, interval randomization like ticketJitter
+  smallTalkJitter: number; // 0..1, interval randomization
   /** Small-talk lines, spoken verbatim in this order, one per slot */
   smallTalkTopics: string[];
   /** Asked verbatim once, this long after the task starts (if the robot or
@@ -142,6 +142,10 @@ export interface SortResult {
   decision: Decision;
   /** Team the participant chose (human decisions in the hard condition) */
   team: HumanTeam | null;
+  /** Side the ticket's rule assigns, ignoring an overload */
+  ruleSide: Decision;
+  /** Correct side at sort time: the rule side, except AI → human while the AI is overloaded */
+  expectedSide: Decision;
   /** Correct team, if the ticket belonged to human support with teams active */
   expectedTeam: HumanTeam | null;
   customer: Customer;
@@ -184,8 +188,6 @@ export interface SessionStartMessage {
     robotCondition?: string;
     /** Legacy alias for taskCondition (pre-2×2 clients) */
     condition?: string;
-    ticketIntervalMs?: number;
-    ticketJitter?: number;
     /** Categories per side (3 or 4); default 3 */
     categoryCount?: number;
     /** Human support teams in the hard condition (2 or 3); default 2. Ignored in easy. */
@@ -257,6 +259,11 @@ export interface ChatFalseClickMessage {
   chatId?: string;
 }
 
+/** Admin panel: fill the AI-capacity bar right now, overloading the AI (demo runs only). */
+export interface CapacityFillMessage {
+  type: 'capacity:fill';
+}
+
 /** Admin panel: open a live chat right now (demo runs only). */
 export interface ChatSpawnMessage {
   type: 'chat:spawn';
@@ -314,6 +321,7 @@ export type InboundMessage =
   | ChatMissedMessage
   | ChatFalseClickMessage
   | ChatSpawnMessage
+  | CapacityFillMessage
   | SessionPauseMessage
   | SessionResumeMessage
   | SessionStatusMessage

@@ -54,7 +54,7 @@ function session(
       eventType: 'session:started',
       schemaVersion: 1,
       appVersion: 'test',
-      taskConfig: { taskCondition, ticketIntervalMs: 5000, ticketJitter: 0.3, durationMs: 60000, rulePresetId, categoryCount: 4 },
+      taskConfig: { taskCondition, ticketDispatch: 'onSort', minTicketSpacingMs: 4000, durationMs: 60000, rulePresetId, categoryCount: 4 },
     },
     ...(opts.taskStarted === false ? [] : [{ at: 10, eventType: 'task:started', trigger: 'admin' }]),
     ...events,
@@ -79,7 +79,7 @@ const talkEvents: Ev[] = [
   { at: 16, eventType: 'user:utterance', startedAt: iso(0), endedAt: iso(2000), durationMs: 2000 },
 ];
 // Expected talk: queued 2, sorted 2, correct 1, incorrect 1, score 0,
-// throughput 1, accuracy 0.5, smalltalk 1, utter 1, speakingSec 2
+// ticketsPerMin 2/1min = 2 (task 10s→70s), accuracy 0.5, smalltalk 1, utter 1, speakingSec 2
 // handling: T1 15-11=4000; T2 max(13,15)=15 -> 19-15=4000; median 4000
 
 const quietEvents: Ev[] = [
@@ -91,7 +91,7 @@ const quietEvents: Ev[] = [
   // no smalltalk in quiet
 ];
 // Expected quiet: queued 3, sorted 2, correct 2, incorrect 0, score 2,
-// throughput 2/3, accuracy 1, smalltalk 0, utter 0, speakingSec 0
+// ticketsPerMin 2, accuracy 1, smalltalk 0, utter 0, speakingSec 0
 // handling: T1 20-11=9000; T2 max(12,20)=20 -> 22-20=2000; median (9000+2000)/2=5500
 
 const base = Date.UTC(2026, 0, 1, 12, 0, 0);
@@ -119,7 +119,7 @@ async function main() {
     console.log(
       `${r.participantId} ${r.robotCondition} completed=${r.completed} run=${r.runIndex} ` +
       `Q=${r.ticketsQueued} S=${r.ticketsSorted} C=${r.ticketsCorrect} W=${r.ticketsIncorrect} ` +
-      `score=${r.score} thr=${r.throughput} acc=${r.accuracy} med=${r.medianHandlingMs} ` +
+      `score=${r.score} tpm=${r.ticketsPerMin} active=${r.activeTaskSec}s acc=${r.accuracy} med=${r.medianHandlingMs} ` +
       `smalltalk=${r.robotSmalltalkCount} utt=${r.userUtteranceCount} spk=${r.userSpeakingSec} endReason=${r.endReason || '-'}`,
     );
   }
@@ -141,7 +141,7 @@ async function main() {
   console.log('\n=== all.xlsx sheets ===', wb.worksheets.map((w) => w.name).join(', '));
   const headerRow = sessionsSheet.getRow(1).values;
   console.log('sessions header:', JSON.stringify(headerRow));
-  // Check a throughput cell is a number
+  // Check an accuracy cell is a number
   const accCol = (headerRow as unknown[]).indexOf('accuracy');
   const r2 = sessionsSheet.getRow(2);
   console.log('row2 accuracy cell type:', typeof r2.getCell(accCol).value, '=', r2.getCell(accCol).value);

@@ -10,12 +10,14 @@ import type { Customer, HumanTeam, HumanTeamRange } from '../types';
 //  show a name too, so the ticket cards look the same in both.        //
 // ------------------------------------------------------------------ //
 
-export type HumanTeamCount = 2 | 3;
+/** 1 = no team split (a single "Mensch" button, like easy), 2 or 3 teams by surname */
+export type HumanTeamCount = 1 | 2 | 3;
+type TeamSplitCount = Exclude<HumanTeamCount, 1>;
 
 export const DEFAULT_HUMAN_TEAM_COUNT: HumanTeamCount = 2;
 
 /** Surname letter ranges per team count (inclusive, A–Z) */
-const TEAM_RANGES: Record<HumanTeamCount, HumanTeamRange[]> = {
+const TEAM_RANGES: Record<TeamSplitCount, HumanTeamRange[]> = {
   2: [
     { team: 'A', from: 'A', to: 'M' },
     { team: 'B', from: 'N', to: 'Z' },
@@ -28,15 +30,23 @@ const TEAM_RANGES: Record<HumanTeamCount, HumanTeamRange[]> = {
 };
 
 export function isHumanTeamCount(val: unknown): val is HumanTeamCount {
-  return val === 2 || val === 3;
+  return val === 1 || val === 2 || val === 3;
 }
 
 export function isHumanTeam(val: unknown): val is HumanTeam {
   return val === 'A' || val === 'B' || val === 'C';
 }
 
-export function teamRanges(count: HumanTeamCount): HumanTeamRange[] {
+export function teamRanges(count: TeamSplitCount): HumanTeamRange[] {
   return TEAM_RANGES[count];
+}
+
+/**
+ * The session's human support teams: only in the hard condition, and only
+ * with a split (count 2 or 3). null = one human side, no team decision.
+ */
+export function humanTeamsFor(taskCondition: string, count: HumanTeamCount): HumanTeamRange[] | null {
+  return taskCondition === 'hard' && count !== 1 ? teamRanges(count) : null;
 }
 
 /** First letter of the surname, umlauts folded to their base letter (Ö → O) */

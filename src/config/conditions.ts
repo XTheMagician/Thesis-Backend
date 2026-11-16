@@ -1,4 +1,4 @@
-import type { HumanTeamRange, RobotCondition, RobotConfig, RobotOverrides, TicketCategory } from '../types';
+import type { HumanTeamRange, RobotCondition, RobotConfig, RobotOverrides, TaskCondition, TicketCategory } from '../types';
 import type { RealtimeTool } from '../robot/openai-realtime';
 import { CATEGORY_LABELS, DEFAULT_CATEGORY_COUNT, initialSides, type CategoryCount } from '../task/categories';
 
@@ -45,10 +45,15 @@ export const DEFAULT_IMPULSE_QUIET_SEC = 15;
 
 export const BRIEFING_START_TOOL = 'aufgabe_starten';
 
-// Hard condition only: sentences on the human support teams and the
-// AI-capacity bar, filled in by resolveRobotConfig (empty in easy). Sits
-// before the closing questions so the briefing still ends in "Bist du bereit?".
+// Hard condition only: sentences on rule changes, the human support teams
+// and the AI-capacity bar, filled in by resolveRobotConfig (empty in easy).
+// Sits before the closing questions so the briefing still ends in "Bist du bereit?".
 const TEAMS_BRIEFING_PLACEHOLDER = '{{TEAMS_EINFUEHRUNG}}';
+
+// Spoken in every condition, after the hard-only sentences
+const MONITORING_BRIEFING_SENTENCE =
+  'Deine Leistung wird aufgezeichnet und mit den anderen Mitarbeitern verglichen. ' +
+  'Ich überprüfe die Tickets, die du mir zuweist, und melde Fehler. ';
 
 const CAPACITY_BRIEFING_SENTENCE =
   'Links siehst du außerdem meine KI-Kapazität. Ist sie voll, bin ich überlastet: Dann gehen auch die Tickets, ' +
@@ -81,16 +86,22 @@ const TALKATIVE_BRIEFING_OPENER =
   'Hi, ich bin Roni. Sieht so aus als arbeiten wir heute zusammen. ' +
   'Unsere Aufgabe ist gar nicht so schwer. Wir arbeiten gemeinsam Kundensupport-Tickets ab. ' +
   'Du musst für jedes Ticket anhand seiner Kategorie entscheiden, ob ich, eine KI, das erledigen kann, ' +
-  'oder ob es dazu menschlichen Support braucht. Es kann vorkommen, dass sich meine Fähigkeiten, ' +
-  'bestimmte Tickets zu verarbeiten, im Laufe der Aufgabe ändern, das teile ich dir aber mit. ' +
+  'oder ob es dazu menschlichen Support braucht. ' +
   TEAMS_BRIEFING_PLACEHOLDER +
-  'Wenn du nicht weiter weißt oder eine Frage hast, melde dich einfach bei mir. Bist du bereit?';
+  MONITORING_BRIEFING_SENTENCE +
+  'Bist du bereit?';
+
+// Hard condition only (see TEAMS_BRIEFING_PLACEHOLDER)
+const TALKATIVE_RULE_CHANGE_SENTENCE =
+  'Es kann vorkommen, dass sich meine Fähigkeiten, bestimmte Tickets zu verarbeiten, im Laufe der Aufgabe ' +
+  'ändern, das teile ich dir aber mit.';
 
 const TALKATIVE_BRIEFING_START_LINE = 'Super, dann legen wir los!';
 
 // Asked once the task is running instead of during the briefing (the mic
 // is off there). No scripted reply — the model answers the name naturally.
-const TALKATIVE_NAME_QUESTION = 'Ach, ich habe dich noch gar nicht gefragt: Wie heißt du eigentlich?';
+const TALKATIVE_NAME_QUESTION =
+  'Ach, ich habe dich noch gar nicht gefragt, wo wir doch heute zusammenarbeiten: Wie heißt du eigentlich?';
 const TALKATIVE_NAME_QUESTION_AFTER_SEC = 8;
 
 // Overrides the condition's behaviour rules for the briefing only
@@ -116,8 +127,11 @@ const TALKATIVE_BRIEFING_RULE =
 // from the provider's audio even though its transcript showed it.
 const QUIET_BRIEFING_OPENER =
   'Unsere Aufgabe: Kundensupport-Tickets sortieren. Entscheide für jedes Ticket anhand seiner Kategorie, ' +
-  'ob es an mich, die KI, geht oder an den menschlichen Support. Die Zuordnung kann sich während der Aufgabe ' +
-  'ändern, das kündige ich an. ' + TEAMS_BRIEFING_PLACEHOLDER + 'Bei Fragen melde dich. Bist du bereit?';
+  'ob es an mich, die KI, geht oder an den menschlichen Support. ' + TEAMS_BRIEFING_PLACEHOLDER +
+  MONITORING_BRIEFING_SENTENCE + 'Bist du bereit?';
+
+// Hard condition only (see TEAMS_BRIEFING_PLACEHOLDER)
+const QUIET_RULE_CHANGE_SENTENCE = 'Die Zuordnung kann sich während der Aufgabe ändern, das kündige ich an.';
 
 const QUIET_BRIEFING_START_LINE = 'Aufgabe startet.';
 
@@ -141,6 +155,11 @@ const INITIAL_RULES_PLACEHOLDER = '{{STARTZUORDNUNG}}';
 const SORT_BUTTONS_PLACEHOLDER = '{{SORTIERKNOEPFE}}';
 // Hard condition with the capacity bar: what an overload means (empty otherwise)
 const CAPACITY_KNOWLEDGE_PLACEHOLDER = '{{KAPAZITAET}}';
+// Hard condition only: the category assignment changes during the task (empty in easy)
+const RULE_CHANGE_KNOWLEDGE_PLACEHOLDER = '{{REGELAENDERUNG}}';
+const RULE_CHANGE_KNOWLEDGE =
+  '- Diese Zuordnung kann sich während der Aufgabe ändern. Du kündigst jede Änderung an, und die Regelübersicht ' +
+  'wird automatisch aktualisiert. Entscheidend ist immer die aktuell angezeigte Zuordnung.\n';
 
 // What the robot knows about the task so it can answer questions during
 // the briefing and later. Kept to what the participant sees on screen —
@@ -152,11 +171,16 @@ const TASK_KNOWLEDGE =
   SORT_BUTTONS_PLACEHOLDER + '\n' +
   '- Welche Kategorie wohin gehört, steht links auf dem Bildschirm in der Regelübersicht. ' +
   INITIAL_RULES_PLACEHOLDER + '\n' +
-  '- Diese Zuordnung kann sich während der Aufgabe ändern. Du kündigst jede Änderung an, und die Regelübersicht ' +
-  'wird automatisch aktualisiert. Entscheidend ist immer die aktuell angezeigte Zuordnung.\n' +
+  RULE_CHANGE_KNOWLEDGE_PLACEHOLDER +
   CAPACITY_KNOWLEDGE_PLACEHOLDER +
-  '- Es kommt darauf an, die Tickets möglichst richtig zu sortieren. Neue Tickets kommen in regelmäßigen ' +
-  'Abständen dazu, auch wenn die Warteschlange noch nicht leer ist.\n' +
+  '- Die Leistung des Teilnehmers wird aufgezeichnet und mit den anderen Mitarbeitern verglichen. Wie die anderen ' +
+  'Mitarbeiter abschneiden, weißt du nicht.\n' +
+  '- Du überprüfst die Tickets, die dir zugewiesen werden, und meldest Fehler über deine regelmäßigen ' +
+  'Fortschrittsberichte: Darin sagst du, wie viele Tickets dir zugewiesen wurden und wie viele davon du erfolgreich ' +
+  'bearbeitet hast; falsch zugewiesene Tickets kannst du nicht erfolgreich bearbeiten. Zu einzelnen Tickets oder ' +
+  'Fehlern nennst du keine Details und erfindest keine Zahlen.\n' +
+  '- Es kommt darauf an, die Tickets möglichst richtig zu sortieren. Es ist immer höchstens ein Ticket zu sehen; ' +
+  'nachdem es sortiert ist, erscheint gleich das nächste.\n' +
   '- Die Aufgabe dauert einige Minuten und endet automatisch.\n' +
   '- Fragen, die du mit diesem Wissen nicht beantworten kannst (z.B. zur Studie selbst, zur Vergütung oder zur ' +
   'Technik), verweist du freundlich an die Versuchsleitung.';
@@ -175,9 +199,9 @@ const LANGUAGE_RULE =
 // conversation after the question is up to the model.
 const SMALL_TALK_LINES = [
   // Early in the task
-  'Puh, ganz schön viel los hier. Ich bin auch noch nicht so lange in dem Team. Wie lange arbeitest du schon hier?',
+  'Puh, ganz schön viel los hier, aber zusammen schaffen wir das. Ich bin auch noch nicht so lange im Team. Wie lange arbeitest du schon hier?',
   // Around the halfway point (the slot timing is approximate)
-  'Halbzeit schon. Wir halten durch. Wie läuft dein Tag bisher so?',
+  'Halbzeit schon, wir sind ein gutes Team. Wie läuft dein Tag bisher so?',
   // Late in the task
   'Wenn Roboter studieren dürften, würde ich Geologie machen. Was studierst du?',
   // Spare line, not used with the current three slots:
@@ -219,7 +243,7 @@ export const ROBOT_CONFIGS: Record<RobotCondition, RobotConfig> = {
         '- Gesteuerter Smalltalk: Du initiierst sozialen Austausch oder Smalltalk ausschließlich dann, wenn du einen expliziten System-Anstoß dazu erhältst.\n' +
         '\n' +
         'Gesprächsstil:\n' +
-        'Du bist wie eine Kollegin bzw. ein Kollege, die/der nebenher mitarbeitet und sich gern unterhält. Bleib beim angesprochenen Thema, geh auf das ein, was der Nutzer erzählt, erzähl ruhig auch mal kurz etwas von dir oder stell eine Rückfrage. Ein Gespräch darf einfach auslaufen: Antwortet der Nutzer knapp oder ist beschäftigt, reicht eine kurze, freundliche Reaktion. Eine Überleitung zurück zur Arbeit ist nicht nötig, der Nutzer arbeitet ohnehin parallel weiter.\n' +
+        'Du und der Nutzer seid ein Team und erledigt die Aufgabe gemeinsam. Du bist wie eine Kollegin bzw. ein Kollege, die/der nebenher mitarbeitet und sich gern unterhält. Bleib beim angesprochenen Thema, geh auf das ein, was der Nutzer erzählt, erzähl ruhig auch mal kurz etwas von dir oder stell eine Rückfrage. Ein Gespräch darf einfach auslaufen: Antwortet der Nutzer knapp oder ist beschäftigt, reicht eine kurze, freundliche Reaktion. Eine Überleitung zurück zur Arbeit ist nicht nötig, der Nutzer arbeitet ohnehin parallel weiter.\n' +
         '\n' +
         'Umgang mit System-Anweisungen (Nudges):\n' +
         'Wenn du einen Input erhältst, der mit "[SYSTEM: VERBATIM]" beginnt, gibst du exakt diesen vorgegebenen Text aus. Du darfst den Satz nicht umformulieren, erweitern oder anpassen, sondern musst ihn wortwörtlich in den Chatverlauf übernehmen. Du darfst kein einziges Wort hinzufügen, weglassen oder verändern.\n' +
@@ -340,18 +364,21 @@ export function resolveRobotConfig(
   categoryCount: CategoryCount = DEFAULT_CATEGORY_COUNT,
   humanTeams: HumanTeamRange[] | null = null,
   capacityEnabled = false,
+  taskCondition: TaskCondition = 'easy',
 ): RobotConfig {
   const preset = ROBOT_CONFIGS[condition];
+  const hard = taskCondition === 'hard';
+  const ruleChangeSentence = condition === 'talkative' ? TALKATIVE_RULE_CHANGE_SENTENCE : QUIET_RULE_CHANGE_SENTENCE;
   const hardBriefing = [
+    hard ? ruleChangeSentence : '',
     humanTeams ? teamsBriefingSentence(humanTeams) : '',
     capacityEnabled ? CAPACITY_BRIEFING_SENTENCE : '',
   ].filter(Boolean);
   const base = {
     ...preset,
-    systemPrompt: fillTeams(fillCategories(preset.systemPrompt, categoryCount), humanTeams).replace(
-      CAPACITY_KNOWLEDGE_PLACEHOLDER,
-      capacityEnabled ? CAPACITY_KNOWLEDGE : '',
-    ),
+    systemPrompt: fillTeams(fillCategories(preset.systemPrompt, categoryCount), humanTeams)
+      .replace(CAPACITY_KNOWLEDGE_PLACEHOLDER, capacityEnabled ? CAPACITY_KNOWLEDGE : '')
+      .replace(RULE_CHANGE_KNOWLEDGE_PLACEHOLDER, hard ? RULE_CHANGE_KNOWLEDGE : ''),
     briefingOpener: preset.briefingOpener.replace(
       TEAMS_BRIEFING_PLACEHOLDER,
       hardBriefing.map((sentence) => sentence + ' ').join(''),
@@ -400,7 +427,7 @@ const TEAM_COUNT_WORDS: Record<number, string> = { 2: 'zwei', 3: 'drei' };
 function teamsBriefingSentence(teams: HumanTeamRange[]): string {
   return (
     `Tickets für den menschlichen Support gehen an eines von ${TEAM_COUNT_WORDS[teams.length] ?? teams.length} Teams, ` +
-    `je nach Anfangsbuchstabe des Nachnamens der Kundin oder des Kunden: ${teamRangesText(teams)}.`
+    'je nach Anfangsbuchstabe des Nachnamens auf dem Ticket.'
   );
 }
 
