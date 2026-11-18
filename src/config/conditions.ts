@@ -52,8 +52,7 @@ const TEAMS_BRIEFING_PLACEHOLDER = '{{TEAMS_EINFUEHRUNG}}';
 
 // Spoken in every condition, after the hard-only sentences
 const MONITORING_BRIEFING_SENTENCE =
-  'Deine Leistung wird aufgezeichnet und mit den anderen Mitarbeitern verglichen. ' +
-  'Ich überprüfe die Tickets, die du mir zuweist, und melde Fehler. ';
+  'Deine Leistung wird aufgezeichnet und mit den anderen Mitarbeitern verglichen. ';
 
 const CAPACITY_BRIEFING_SENTENCE =
   'Links siehst du außerdem meine KI-Kapazität. Ist sie voll, bin ich überlastet: Dann gehen auch die Tickets, ' +
